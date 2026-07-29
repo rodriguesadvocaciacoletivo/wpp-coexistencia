@@ -60,6 +60,25 @@ const envSchema = z.object({
     .regex(/^v\d+\.\d+$/, 'Use o formato vXX.Y, como v25.0')
     .default('v25.0'),
 
+  /**
+   * App Secret do app no Meta Developers. Valida a assinatura HMAC de todo
+   * webhook recebido — sem ele, qualquer um que descubra a URL consegue
+   * injetar mensagens falsas na plataforma.
+   */
+  META_APP_SECRET: z.string().optional(),
+
+  /** Token combinado com a Meta na verificação inicial da URL do webhook. */
+  META_WEBHOOK_VERIFY_TOKEN: z.string().optional(),
+
+  /** Diretório onde as mídias baixadas da Meta são guardadas. */
+  STORAGE_DIR: z.string().default('./storage'),
+
+  /**
+   * URL pública da API, usada para montar os endereços das mídias.
+   * Em desenvolvimento, o padrão aponta para a porta local.
+   */
+  PUBLIC_API_URL: z.string().default('http://localhost:3333'),
+
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().positive().optional(),
   SMTP_SECURE: z

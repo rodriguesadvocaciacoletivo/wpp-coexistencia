@@ -10,6 +10,8 @@ import type {
 } from './meta.types';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
+/** Mídia pode chegar a 100 MB (documentos), então o prazo é maior. */
+const MEDIA_TIMEOUT_MS = 120_000;
 const MAX_TEMPLATE_PAGES = 40; // 40 × 100 = 2000 templates, teto de segurança
 
 /**
@@ -154,6 +156,144 @@ export class MetaGraphService {
       { name },
       { method: 'DELETE' },
     );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Mensagens
+  // ---------------------------------------------------------------------------
+
+  /** Envia uma mensagem. O payload já vai montado pelo chamador. */
+  sendMessage(
+    phoneNumberId: string,
+    token: string,
+    payload: Record<string, unknown>,
+  ): Promise<{ messages?: Array<{ id?: string }> }> {
+    return this.request(`/${phoneNumberId}/messages`, token, undefined, {
+      method: 'POST',
+      body: { messaging_product: 'whatsapp', ...payload },
+    });
+  }
+
+  /**
+   * Marca a mensagem como lida no aparelho do contato.
+   *
+   * É o que produz o "visto" do lado dele. Sem isso, o cliente vê a mensagem
+   * como não lida mesmo depois de o atendente responder.
+   */
+  markAsRead(
+    phoneNumberId: string,
+    token: string,
+    messageId: string,
+  ): Promise<{ success?: boolean }> {
+    return this.request(`/${phoneNumberId}/messages`, token, undefined, {
+      method: 'POST',
+      body: {
+        messaging_product: 'whatsapp',
+        status: 'read',
+        message_id: messageId,
+      },
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Mídia
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Obtém a URL temporária de uma mídia recebida.
+   * A URL vale poucos minutos — baixe imediatamente.
+   */
+  getMediaUrl(
+    mediaId: string,
+    token: string,
+  ): Promise<{ url?: string; mime_type?: string; file_size?: number }> {
+    return this.request(`/${mediaId}`, token);
+  }
+
+  /**
+   * Baixa a mídia.
+   *
+   * O download exige o header Authorization mesmo a URL já sendo assinada —
+   * abrir a URL sem o token devolve 401.
+   */
+  async downloadMedia(url: string, token: string): Promise<Buffer> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), MEDIA_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        throw new MetaApiError(
+          response.status,
+          null,
+          null,
+          `Falha ao baixar a mídia (HTTP ${response.status}).`,
+          null,
+          null,
+        );
+      }
+
+      return Buffer.from(await response.arrayBuffer());
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  /** Envia o arquivo para a Meta e devolve o media_id usado no envio. */
+  async uploadMedia(
+    phoneNumberId: string,
+    token: string,
+    file: Buffer,
+    mimeType: string,
+    filename: string,
+  ): Promise<string> {
+    const form = new FormData();
+    form.append('messaging_product', 'whatsapp');
+    form.append('type', mimeType);
+    form.append(
+      'file',
+      new Blob([new Uint8Array(file)], { type: mimeType }),
+      filename,
+    );
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), MEDIA_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(`${this.baseUrl}/${phoneNumberId}/media`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+        signal: controller.signal,
+      });
+
+      const payload: unknown = await response.json();
+
+      if (!response.ok) {
+        throw this.buildError(response.status, payload);
+      }
+
+      const id = (payload as { id?: string }).id;
+
+      if (!id) {
+        throw new MetaApiError(
+          response.status,
+          null,
+          null,
+          'A Meta aceitou o upload mas não devolveu o identificador da mídia.',
+          null,
+          payload,
+        );
+      }
+
+      return id;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   private async request<T>(

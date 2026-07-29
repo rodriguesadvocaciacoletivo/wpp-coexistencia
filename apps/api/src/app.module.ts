@@ -17,6 +17,10 @@ import { TeamsModule } from './modules/teams/teams.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { TemplatesModule } from './modules/templates/templates.module';
 import { InboxesModule } from './modules/inboxes/inboxes.module';
+import { StorageModule } from './modules/storage/storage.module';
+import { RealtimeModule } from './modules/realtime/realtime.module';
+import { ConversationsModule } from './modules/conversations/conversations.module';
+import { WebhooksModule } from './modules/webhooks/webhooks.module';
 import { HealthModule } from './modules/health/health.module';
 
 @Module({
@@ -35,12 +39,16 @@ import { HealthModule } from './modules/health/health.module';
     AuditModule,
     MailModule,
     MetaModule,
+    StorageModule,
+    RealtimeModule,
     AuthModule,
     UsersModule,
     TeamsModule,
     SettingsModule,
     TemplatesModule,
     InboxesModule,
+    ConversationsModule,
+    WebhooksModule,
     HealthModule,
   ],
   providers: [

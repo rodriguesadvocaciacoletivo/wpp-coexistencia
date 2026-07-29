@@ -3,9 +3,9 @@
 //
 // Fase 1: identidade, sessão, equipe e configuração de e-mail.
 // Fase 2: caixas de entrada (conexão com a Cloud API) e templates.
+// Fase 3: contatos, conversas, mensagens, anexos e eventos de webhook.
 //
-// Contatos, conversas, mensagens, etiquetas e eventos de webhook entram na
-// Fase 3.
+// Etiquetas entram na Fase 5.
 // =============================================================================
 
 generator client {
@@ -58,6 +58,8 @@ model User {
   invitationsSent Invitation[]   @relation("InvitationCreatedBy")
   auditLogs      AuditLog[]
   inboxMemberships InboxMember[]
+  assignedConversations Conversation[] @relation("ConversationAssignee")
+  authoredMessages      Message[]      @relation("MessageAuthor")
 
   @@index([status])
   @@map("users")
@@ -128,7 +130,8 @@ model Team {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  members TeamMember[]
+  members       TeamMember[]
+  conversations Conversation[]
 
   @@map("teams")
 }
@@ -259,8 +262,9 @@ model Inbox {
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
 
-  members   InboxMember[]
-  templates Template[]
+  members       InboxMember[]
+  templates     Template[]
+  conversations Conversation[]
 
   @@index([connectionStatus])
   @@index([deletedAt])
@@ -316,6 +320,227 @@ model Template {
   @@unique([inboxId, name, language])
   @@index([inboxId, status])
   @@map("templates")
+}
+
+// =============================================================================
+// Fase 3 — Conversas
+// =============================================================================
+
+enum ConversationStatus {
+  open
+  resolved
+}
+
+enum ConversationPriority {
+  none
+  low
+  medium
+  high
+  urgent
+}
+
+enum MessageDirection {
+  /// Recebida do contato.
+  in
+  /// Enviada pela equipe — pela plataforma ou, em coexistência, pelo celular.
+  out
+}
+
+enum MessageType {
+  text
+  image
+  video
+  audio
+  document
+  sticker
+  location
+  contacts
+  reaction
+  template
+  /// Nota interna. Nunca é enviada à Meta.
+  private_note
+  /// Evento gerado pela própria plataforma (atribuição, resolução, etc.).
+  system_event
+  /// Tipo não reconhecido — preservado para não perder a mensagem.
+  unsupported
+}
+
+enum MessageStatus {
+  /// Aceita pela plataforma, ainda não confirmada pela Meta.
+  pending
+  sent
+  delivered
+  read
+  failed
+}
+
+enum MessageOrigin {
+  platform
+  /// Enviada pelo app WhatsApp Business (Fase 7).
+  coexistence_echo
+  contact
+  system
+}
+
+/// Pessoa do outro lado da conversa, identificada pelo número no WhatsApp.
+model Contact {
+  id          String   @id @default(uuid()) @db.Uuid
+  /// Identificador do WhatsApp em E.164 sem o "+". É o que a Meta devolve.
+  waId        String   @unique @map("wa_id") @db.VarChar(32)
+  /// Nome do perfil comercial informado pelo próprio contato.
+  profileName String?  @map("profile_name") @db.VarChar(160)
+  /// Nome editado pela equipe. Tem precedência na exibição.
+  displayName String?  @map("display_name") @db.VarChar(160)
+  avatarUrl   String?  @map("avatar_url")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  conversations Conversation[]
+
+  @@map("contacts")
+}
+
+/// Conversa contínua entre uma caixa de entrada e um contato.
+///
+/// É única por par (inbox, contact): resolver não cria conversa nova, e uma
+/// nova mensagem reabre a existente. O histórico do atendimento fica em um
+/// lugar só, como no WhatsApp.
+model Conversation {
+  id        String @id @default(uuid()) @db.Uuid
+  inboxId   String @map("inbox_id") @db.Uuid
+  contactId String @map("contact_id") @db.Uuid
+
+  status     ConversationStatus   @default(open)
+  priority   ConversationPriority @default(none)
+  assigneeId String?              @map("assignee_id") @db.Uuid
+  teamId     String?              @map("team_id") @db.Uuid
+
+  /// Momento em que a janela de atendimento de 24h fecha. Renovada a cada
+  /// mensagem recebida do contato. Fora dela, só template — regra da Meta.
+  windowExpiresAt DateTime? @map("window_expires_at")
+
+  lastMessageAt      DateTime? @map("last_message_at")
+  lastMessagePreview String?   @map("last_message_preview") @db.VarChar(280)
+  /// Recebidas e ainda não lidas por nenhum agente.
+  unreadCount        Int       @default(0) @map("unread_count")
+  resolvedAt         DateTime? @map("resolved_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  inbox    Inbox     @relation(fields: [inboxId], references: [id], onDelete: Cascade)
+  contact  Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  assignee User?     @relation("ConversationAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  team     Team?     @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  messages Message[]
+
+  @@unique([inboxId, contactId])
+  @@index([status, lastMessageAt])
+  @@index([assigneeId, status])
+  @@index([inboxId, status])
+  @@map("conversations")
+}
+
+model Message {
+  id             String @id @default(uuid()) @db.Uuid
+  conversationId String @map("conversation_id") @db.Uuid
+
+  direction MessageDirection
+  type      MessageType
+  origin    MessageOrigin    @default(platform)
+  status    MessageStatus    @default(pending)
+
+  /// Texto da mensagem, quando houver.
+  content String? @db.Text
+  /// Dados específicos do tipo: localização, contatos, reação, template
+  /// renderizado, metadados do evento de sistema.
+  payload Json?
+
+  /// Identificador da mensagem na Meta. Índice único: é o que garante
+  /// idempotência ponta a ponta, já que a Meta reentrega webhooks.
+  waMessageId String? @unique @map("wa_message_id") @db.VarChar(128)
+  /// Mensagem citada, quando é uma resposta.
+  replyToWaId String? @map("reply_to_wa_id") @db.VarChar(128)
+
+  /// Autor interno. Nulo quando vem do contato ou é evento de sistema.
+  authorId String? @map("author_id") @db.Uuid
+
+  /// Erro devolvido pela Meta em caso de falha no envio.
+  errorPayload Json?     @map("error_payload")
+  sentAt       DateTime? @map("sent_at")
+  deliveredAt  DateTime? @map("delivered_at")
+  readAt       DateTime? @map("read_at")
+  failedAt     DateTime? @map("failed_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  author       User?        @relation("MessageAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  attachments  Attachment[]
+
+  @@index([conversationId, createdAt])
+  @@map("messages")
+}
+
+/// Arquivo vinculado a uma mensagem.
+///
+/// As URLs de mídia da Meta expiram em minutos, então o arquivo é baixado no
+/// processamento do webhook e servido a partir do storage próprio.
+model Attachment {
+  id        String @id @default(uuid()) @db.Uuid
+  messageId String @map("message_id") @db.Uuid
+
+  /// Identificador da mídia na Meta, quando houver.
+  metaMediaId  String? @map("meta_media_id") @db.VarChar(128)
+  /// Chave no storage próprio.
+  storageKey   String  @map("storage_key")
+  mimeType     String  @map("mime_type") @db.VarChar(120)
+  sizeBytes    Int     @map("size_bytes")
+  originalName String? @map("original_name") @db.VarChar(255)
+  /// Duração em segundos, para áudio e vídeo.
+  durationSeconds Int? @map("duration_seconds")
+  /// Legenda enviada junto do arquivo.
+  caption      String? @db.Text
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@map("attachments")
+}
+
+enum WebhookEventStatus {
+  queued
+  processing
+  processed
+  failed
+  /// Esgotou as tentativas. Aguarda reprocessamento manual (Fase 6).
+  dead
+}
+
+/// Evento bruto recebido da Meta.
+///
+/// Persistido antes de qualquer processamento: o ACK precisa sair rápido, e
+/// guardar o payload cru permite reprocessar sem depender de a Meta reenviar.
+model WebhookEvent {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// Chave de deduplicação derivada do conteúdo do evento.
+  eventKey String @unique @map("event_key") @db.VarChar(200)
+  /// Campo do webhook: messages, statuses, message_template_status_update…
+  field    String @db.VarChar(80)
+  wabaId   String? @map("waba_id") @db.VarChar(64)
+
+  payload Json
+  status  WebhookEventStatus @default(queued)
+  attempts Int               @default(0)
+  lastError String?          @map("last_error") @db.Text
+  processedAt DateTime?      @map("processed_at")
+  createdAt   DateTime       @default(now()) @map("created_at")
+
+  @@index([status, createdAt])
+  @@map("webhook_events")
 }
 
 /// Trilha de auditoria de ações administrativas.

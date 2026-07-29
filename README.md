@@ -150,6 +150,27 @@ O raciocínio completo e o passo a passo estão em [`docs/04-hospedagem.md`](doc
 - Limpeza diária de convites e tokens vencidos.
 - Teto de throughput por caixa gravado no banco (20 msg/s em coexistência), lido pela fila de envio na Fase 3.
 
+## O que a Fase 3 entrega
+
+**Recepção**
+- Endpoint público `GET/POST /api/webhooks/meta` com verificação de posse e validação de assinatura HMAC sobre o corpo cru.
+- ACK imediato: o evento é persistido e respondido, e só então processado.
+- Idempotência por `wa_message_id` — webhook reentregue não duplica mensagem.
+- Tolerância a eventos fora de ordem: um `delivered` atrasado não rebaixa um `read` já confirmado.
+- Todos os tipos recebidos: texto, imagem, vídeo, áudio, documento, figurinha, localização, contatos e reação. Tipo desconhecido é preservado, não descartado.
+- Mídia baixada no recebimento e servida pela própria API — as URLs da Meta expiram em minutos.
+
+**Atendimento**
+- Abas Minhas, Não atribuídas e Todos, com contadores e filtros por caixa, prioridade e busca.
+- Conversa única por contato e caixa: resolver não cria conversa nova, e mensagem nova reabre a existente.
+- Atribuição, transferência, time, prioridade e resolução — cada mudança vira evento na timeline.
+- Notas internas que nunca chegam ao contato e não alteram a prévia da conversa.
+- Envio de texto, imagem, vídeo, documento e áudio gravado no navegador.
+- Status na bolha: enviado, entregue, lido e falha com o motivo da Meta.
+- Abrir a conversa marca as mensagens como lidas, inclusive no aparelho do contato.
+- Bloqueio de texto livre fora da janela de 24h, como a Meta exige.
+- WebSocket empurra mensagens, status e atribuições em tempo real.
+
 ---
 
 ## Comandos

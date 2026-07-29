@@ -8,7 +8,7 @@ import { LoginPage } from './pages/auth/LoginPage';
 import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage';
 import { ResetPasswordPage } from './pages/auth/ResetPasswordPage';
 import { AcceptInvitePage } from './pages/auth/AcceptInvitePage';
-import { ConversationsPage } from './pages/ConversationsPage';
+import { ConversationsPage } from './pages/conversations/ConversationsPage';
 import { InboxesPage } from './pages/admin/InboxesPage';
 import { InboxWizardPage } from './pages/admin/InboxWizardPage';
 import { InboxDetailPage } from './pages/admin/InboxDetailPage';

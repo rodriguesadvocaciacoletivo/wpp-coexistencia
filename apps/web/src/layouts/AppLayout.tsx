@@ -25,7 +25,9 @@ export function AppLayout() {
   };
 
   return (
-    <div className="flex min-h-screen">
+    // Altura fixa e rolagem interna: a tela de conversas é de três colunas com
+    // rolagem própria em cada uma, e um scroll na página inteira quebraria isso.
+    <div className="flex h-screen overflow-hidden">
       <aside className="flex w-64 shrink-0 flex-col border-r border-surface-800 bg-surface-900">
         <div className="flex items-center gap-2.5 px-5 py-5">
           <span className="grid size-8 place-items-center rounded-lg bg-brand-600">
