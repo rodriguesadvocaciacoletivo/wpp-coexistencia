@@ -1,0 +1,79 @@
+# =============================================================================
+# Blueprint do ambiente de testes hospedado.
+#
+# A API roda como processo contínuo, não como função serverless — é o que
+# permite WebSocket (Fase 3) e workers de fila (Fase 6) funcionarem sem
+# reescrita. O Redis já entra aqui para que a Fase 6 não precise de mudança de
+# infraestrutura.
+#
+# A interface fica na Vercel; só a API e os serviços de dados vivem aqui.
+# =============================================================================
+
+databases:
+  - name: coexistente-postgres
+    databaseName: coexistente
+    user: coexistente
+    plan: free
+
+services:
+  - type: web
+    name: coexistente-api
+    runtime: docker
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: API_PORT
+        value: 3333
+
+      - key: DATABASE_URL
+        fromDatabase:
+          name: coexistente-postgres
+          property: connectionString
+
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: coexistente-redis
+          property: connectionString
+
+      # Gerados automaticamente na primeira criação e preservados depois.
+      # Trocar JWT_SECRET derruba todas as sessões.
+      # Trocar ENCRYPTION_KEY torna ilegíveis os segredos já salvos.
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ENCRYPTION_KEY
+        sync: false
+
+      # Preencher no painel com a URL da Vercel após o primeiro deploy.
+      - key: APP_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+
+      # Interface e API em domínios diferentes neste ambiente.
+      - key: COOKIE_CROSS_SITE
+        value: "true"
+
+      # SMTP: configurável pela interface. Estes valores servem apenas para o
+      # primeiro convite, antes de existir configuração salva no banco.
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM_EMAIL
+        sync: false
+      - key: SMTP_FROM_NAME
+        value: Atendimento
+
+  - type: redis
+    name: coexistente-redis
+    plan: free
+    ipAllowList: []

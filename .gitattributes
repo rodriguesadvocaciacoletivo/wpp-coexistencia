@@ -1,0 +1,12 @@
+# Normaliza as quebras de linha no repositório.
+# O time trabalha em Windows, mas a API roda em contêiner Linux — arquivos com
+# CRLF quebram shebangs e scripts de shell dentro da imagem.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+pnpm-lock.yaml -diff

@@ -1,0 +1,175 @@
+// =============================================================================
+// Sistema Coexistente Wpp — schema da Fase 1 (Fundação)
+//
+// Escopo: identidade, sessão, equipe e configuração de e-mail.
+// As entidades de WhatsApp (inboxes, contacts, conversations, messages,
+// templates, labels, webhook_events) entram nas Fases 2 e 3.
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+  // "native" cobre a máquina de desenvolvimento e a VPS.
+  // "rhel-openssl-3.0.x" é o runtime das funções serverless da Vercel — sem
+  // esse alvo, o build gera o client mas o engine não existe em produção.
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  admin
+  agent
+}
+
+enum UserStatus {
+  /// Convite enviado, senha ainda não definida. Não consegue autenticar.
+  invited
+  active
+  /// Desativado por um administrador. Não autentica e tem as sessões revogadas.
+  disabled
+}
+
+model User {
+  id           String     @id @default(uuid()) @db.Uuid
+  name         String     @db.VarChar(120)
+  email        String     @unique @db.VarChar(255)
+  /// Hash argon2id. Nulo enquanto o convite não for aceito.
+  passwordHash String?    @map("password_hash")
+  role         UserRole
+  status       UserStatus @default(invited)
+  avatarUrl    String?    @map("avatar_url")
+  lastLoginAt  DateTime?  @map("last_login_at")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  refreshTokens  RefreshToken[]
+  passwordResets PasswordReset[]
+  teamMemberships TeamMember[]
+  invitationsSent Invitation[]   @relation("InvitationCreatedBy")
+  auditLogs      AuditLog[]
+
+  @@index([status])
+  @@map("users")
+}
+
+/// Sessão de refresh. Uma linha por sessão ativa; a rotação cria uma nova linha
+/// e marca a anterior como revogada, permitindo detectar reuso de token roubado.
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  /// SHA-256 do token. O valor em claro só existe no cookie do cliente.
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  /// Aponta para o token que substituiu este na rotação.
+  replacedById String? @map("replaced_by_id") @db.Uuid
+  userAgent String?   @map("user_agent") @db.VarChar(255)
+  ipAddress String?   @map("ip_address") @db.VarChar(64)
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+/// Convite de novo membro. O token em claro só existe no link enviado por e-mail.
+model Invitation {
+  id          String    @id @default(uuid()) @db.Uuid
+  email       String    @db.VarChar(255)
+  name        String    @db.VarChar(120)
+  role        UserRole
+  tokenHash   String    @unique @map("token_hash")
+  expiresAt   DateTime  @map("expires_at")
+  acceptedAt  DateTime? @map("accepted_at")
+  revokedAt   DateTime? @map("revoked_at")
+  createdById String?   @map("created_by_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  createdBy User? @relation("InvitationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([email])
+  @@index([expiresAt])
+  @@map("invitations")
+}
+
+/// Token de recuperação de senha. Uso único, validade curta.
+model PasswordReset {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("password_resets")
+}
+
+model Team {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique @db.VarChar(120)
+  description String?  @db.VarChar(500)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  members TeamMember[]
+
+  @@map("teams")
+}
+
+model TeamMember {
+  teamId   String   @map("team_id") @db.Uuid
+  userId   String   @map("user_id") @db.Uuid
+  joinedAt DateTime @default(now()) @map("joined_at")
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([teamId, userId])
+  @@index([userId])
+  @@map("team_members")
+}
+
+/// Configuração de SMTP. Singleton — sempre no máximo uma linha, com id fixo.
+model SmtpSettings {
+  id                String   @id @default("default")
+  host              String   @db.VarChar(255)
+  port              Int
+  /// true = TLS implícito (465). false = STARTTLS (587) ou sem TLS.
+  secure            Boolean  @default(false)
+  username          String?  @db.VarChar(255)
+  /// AES-256-GCM. Nunca sai da API em nenhuma resposta.
+  passwordEncrypted String?  @map("password_encrypted")
+  fromName          String   @map("from_name") @db.VarChar(120)
+  fromEmail         String   @map("from_email") @db.VarChar(255)
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@map("smtp_settings")
+}
+
+/// Trilha de auditoria de ações administrativas.
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
+  action     String   @db.VarChar(80)
+  entity     String   @db.VarChar(60)
+  entityId   String?  @map("entity_id")
+  metadata   Json?
+  ipAddress  String?  @map("ip_address") @db.VarChar(64)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}

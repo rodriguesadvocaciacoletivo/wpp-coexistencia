@@ -1,0 +1,47 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: coexistente-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: coexistente
+      POSTGRES_PASSWORD: coexistente
+      POSTGRES_DB: coexistente
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U coexistente -d coexistente"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: coexistente-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Servidor SMTP de desenvolvimento. Interface web em http://localhost:8025
+  # Captura todos os e-mails enviados pela aplicação sem entregá-los de verdade.
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: coexistente-mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+volumes:
+  postgres_data:
+  redis_data:

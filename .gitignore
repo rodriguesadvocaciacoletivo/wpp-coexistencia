@@ -1,0 +1,32 @@
+node_modules/
+dist/
+build/
+coverage/
+.turbo/
+
+# Ambiente — nunca commitar segredos
+.env
+.env.*
+!.env.example
+
+# Prisma
+apps/api/prisma/*.db
+apps/api/prisma/migrations/dev.db*
+
+# Storage local de mídia (Fase 3)
+storage/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Editores / SO
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Agente — pode conter credenciais
+.claude/settings.local.json
