@@ -9,11 +9,9 @@
 # A interface fica na Vercel; só a API e os serviços de dados vivem aqui.
 # =============================================================================
 
-databases:
-  - name: coexistente-postgres
-    databaseName: coexistente
-    user: coexistente
-    plan: free
+# O Postgres é o do Supabase, não um banco gerenciado aqui — o Postgres gratuito
+# do Render é removido após 30 dias, o que faria o ambiente de testes evaporar no
+# meio do desenvolvimento.
 
 services:
   - type: web
@@ -29,10 +27,12 @@ services:
       - key: API_PORT
         value: 3333
 
+      # Supabase. DATABASE_URL usa o pooler (6543); DIRECT_URL, a conexão
+      # direta (5432), necessária para o `prisma migrate deploy` da subida.
       - key: DATABASE_URL
-        fromDatabase:
-          name: coexistente-postgres
-          property: connectionString
+        sync: false
+      - key: DIRECT_URL
+        sync: false
 
       - key: REDIS_URL
         fromService:

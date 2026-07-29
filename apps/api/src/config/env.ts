@@ -17,6 +17,11 @@ const envSchema = z.object({
   APP_URL: z.string().url().default('http://localhost:5173'),
 
   DATABASE_URL: z.string().min(1, 'DATABASE_URL é obrigatória'),
+  /**
+   * Conexão direta com o banco, usada apenas pelas migrations. Não é lida em
+   * runtime pela aplicação — só pelo CLI do Prisma —, por isso é opcional aqui.
+   */
+  DIRECT_URL: z.string().optional(),
   REDIS_URL: z.string().default('redis://localhost:6379'),
 
   JWT_SECRET: z

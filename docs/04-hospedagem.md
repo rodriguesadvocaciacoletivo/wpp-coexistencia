@@ -26,8 +26,12 @@ de validar** no ambiente onde você estaria testando.
 
 ```
 Interface (React)  →  Vercel
-API + Postgres + Redis  →  Render (Docker)
+API + Redis        →  Render (Docker)
+Postgres           →  Supabase
 ```
+
+O Postgres fica no **Supabase**, não no Render: o banco gratuito do Render é **removido após 30 dias**, o que
+faria o ambiente de testes desaparecer no meio do desenvolvimento. O do Supabase persiste.
 
 A Vercel continua sendo excelente para o que ela faz bem: servir o SPA, com deploy automático a cada push e
 preview por branch.
@@ -55,14 +59,37 @@ e portanto preferível, volta a valer.
 
 ---
 
+## Supabase: duas strings de conexão, e elas não são intercambiáveis
+
+Em **Project Settings → Database → Connection string**, o Supabase oferece dois endereços. O sistema usa os
+dois, para coisas diferentes:
+
+| Variável | Porta | Para quê | Por quê |
+|---|---|---|---|
+| `DATABASE_URL` | 6543 (pooler) | Runtime da aplicação | O PgBouncer multiplexa conexões e evita esgotar o limite do plano gratuito |
+| `DIRECT_URL` | 5432 (direta) | `prisma migrate` | Migrations executam DDL e comandos de sessão que o pooler em modo *transaction* não aceita |
+
+Na `DATABASE_URL`, acrescente `?pgbouncer=true&connection_limit=1` — sem isso o Prisma usa *prepared
+statements*, que o PgBouncer nesse modo não suporta, e as queries falham de forma intermitente.
+
+> Usar só a conexão direta nas duas variáveis funciona e é mais simples. O risco aparece quando várias
+> instâncias da API sobem ao mesmo tempo e estouram o limite de conexões do projeto.
+
+O Supabase é usado **apenas como Postgres gerenciado**. Auth, Storage e as APIs REST/Realtime dele não entram:
+a autenticação é própria (necessária para os papéis e o vínculo com caixas de entrada) e as mídias do WhatsApp
+vão para storage S3-compatível na Fase 3.
+
+---
+
 ## Passo a passo
 
 ### 1. API no Render
 
-Conecte o repositório e aponte para o `render.yaml` na raiz (Blueprint). Ele cria a API, o Postgres e o Redis.
+Conecte o repositório e aponte para o `render.yaml` na raiz (Blueprint). Ele cria a API e o Redis.
 
 Depois do primeiro deploy, preencha no painel as variáveis marcadas com `sync: false`:
 
+- `DATABASE_URL` e `DIRECT_URL` — as duas strings do Supabase.
 - `ENCRYPTION_KEY` — gere com o comando abaixo. **Guarde**: perder essa chave torna ilegíveis a senha do
   SMTP e, a partir da Fase 2, todos os tokens da Meta já salvos.
 - `APP_URL` e `CORS_ORIGINS` — a URL da Vercel (preencher depois do passo 2).

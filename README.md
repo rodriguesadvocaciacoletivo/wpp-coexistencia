@@ -39,10 +39,12 @@ Plataforma de atendimento multiagente via **WhatsApp Cloud API oficial da Meta**
 
 - **Node.js** ≥ 20.11 (testado com 24.14)
 - **pnpm** 9
-- **Docker Desktop** — para Postgres, Redis e Mailhog locais
+- Um **PostgreSQL** — projeto no [Supabase](https://supabase.com) (recomendado) ou local via Docker
+- **Docker Desktop** — opcional; sobe Postgres, Redis e Mailhog locais
 
-> Sem Docker é possível compilar e rodar a API, mas nenhuma operação que toque o banco funciona.
-> Alternativa: apontar `DATABASE_URL` para um Postgres já existente.
+> Com Supabase, o Docker deixa de ser obrigatório para desenvolver a Fase 1. Basta preencher
+> `DATABASE_URL` e `DIRECT_URL` no `.env` — veja as instruções no `.env.example`.
+> O Mailhog, porém, só existe via Docker; sem ele, configure um SMTP real para testar os e-mails.
 
 ---
 
