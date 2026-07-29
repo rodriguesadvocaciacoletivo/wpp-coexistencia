@@ -50,6 +50,16 @@ const envSchema = z.object({
     .default('false')
     .transform((value) => value === 'true'),
 
+  /**
+   * Versão da Graph API. Centralizada aqui de propósito: a Meta descontinua
+   * versões com prazo, e a atualização precisa ser uma variável de ambiente,
+   * não uma varredura por URLs no código.
+   */
+  META_GRAPH_VERSION: z
+    .string()
+    .regex(/^v\d+\.\d+$/, 'Use o formato vXX.Y, como v25.0')
+    .default('v25.0'),
+
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().positive().optional(),
   SMTP_SECURE: z

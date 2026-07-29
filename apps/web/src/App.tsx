@@ -9,6 +9,9 @@ import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage';
 import { ResetPasswordPage } from './pages/auth/ResetPasswordPage';
 import { AcceptInvitePage } from './pages/auth/AcceptInvitePage';
 import { ConversationsPage } from './pages/ConversationsPage';
+import { InboxesPage } from './pages/admin/InboxesPage';
+import { InboxWizardPage } from './pages/admin/InboxWizardPage';
+import { InboxDetailPage } from './pages/admin/InboxDetailPage';
 import { UsersPage } from './pages/admin/UsersPage';
 import { TeamsPage } from './pages/admin/TeamsPage';
 import { SmtpSettingsPage } from './pages/admin/SmtpSettingsPage';
@@ -55,6 +58,18 @@ export function App() {
         <Route index element={<Navigate to="/conversas" replace />} />
         <Route path="/conversas" element={<ConversationsPage />} />
 
+        <Route
+          path="/configuracoes/caixas"
+          element={<RequireAdmin><InboxesPage /></RequireAdmin>}
+        />
+        <Route
+          path="/configuracoes/caixas/nova"
+          element={<RequireAdmin><InboxWizardPage /></RequireAdmin>}
+        />
+        <Route
+          path="/configuracoes/caixas/:id"
+          element={<RequireAdmin><InboxDetailPage /></RequireAdmin>}
+        />
         <Route
           path="/configuracoes/usuarios"
           element={<RequireAdmin><UsersPage /></RequireAdmin>}

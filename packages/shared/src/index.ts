@@ -10,3 +10,5 @@ export * from './auth.js';
 export * from './users.js';
 export * from './teams.js';
 export * from './settings.js';
+export * from './inboxes.js';
+export * from './templates.js';

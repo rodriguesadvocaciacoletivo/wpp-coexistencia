@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { validateEnv } from './config/env';
 import { PrismaModule } from './common/prisma/prisma.module';
@@ -9,10 +10,13 @@ import { AuditModule } from './common/audit/audit.module';
 import { JwtAuthGuard } from './common/auth/jwt-auth.guard';
 import { RolesGuard } from './common/auth/roles.guard';
 import { MailModule } from './modules/mail/mail.module';
+import { MetaModule } from './modules/meta/meta.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { TeamsModule } from './modules/teams/teams.module';
 import { SettingsModule } from './modules/settings/settings.module';
+import { TemplatesModule } from './modules/templates/templates.module';
+import { InboxesModule } from './modules/inboxes/inboxes.module';
 import { HealthModule } from './modules/health/health.module';
 
 @Module({
@@ -25,14 +29,18 @@ import { HealthModule } from './modules/health/health.module';
     ThrottlerModule.forRoot([
       { name: 'default', ttl: 60_000, limit: 120 },
     ]),
+    ScheduleModule.forRoot(),
     PrismaModule,
     CryptoModule,
     AuditModule,
     MailModule,
+    MetaModule,
     AuthModule,
     UsersModule,
     TeamsModule,
     SettingsModule,
+    TemplatesModule,
+    InboxesModule,
     HealthModule,
   ],
   providers: [

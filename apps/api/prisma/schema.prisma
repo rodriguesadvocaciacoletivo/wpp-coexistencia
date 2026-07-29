@@ -1,9 +1,11 @@
 // =============================================================================
-// Sistema Coexistente Wpp — schema da Fase 1 (Fundação)
+// Sistema Coexistente Wpp — schema
 //
-// Escopo: identidade, sessão, equipe e configuração de e-mail.
-// As entidades de WhatsApp (inboxes, contacts, conversations, messages,
-// templates, labels, webhook_events) entram nas Fases 2 e 3.
+// Fase 1: identidade, sessão, equipe e configuração de e-mail.
+// Fase 2: caixas de entrada (conexão com a Cloud API) e templates.
+//
+// Contatos, conversas, mensagens, etiquetas e eventos de webhook entram na
+// Fase 3.
 // =============================================================================
 
 generator client {
@@ -55,6 +57,7 @@ model User {
   teamMemberships TeamMember[]
   invitationsSent Invitation[]   @relation("InvitationCreatedBy")
   auditLogs      AuditLog[]
+  inboxMemberships InboxMember[]
 
   @@index([status])
   @@map("users")
@@ -158,6 +161,161 @@ model SmtpSettings {
   updatedAt         DateTime @updatedAt @map("updated_at")
 
   @@map("smtp_settings")
+}
+
+// =============================================================================
+// Fase 2 — Conexão com a WhatsApp Cloud API
+// =============================================================================
+
+/// Como o número foi conectado. Ver docs/adr/001-onboarding-duplo.md.
+enum InboxOnboardingType {
+  /// Cloud API pura: credenciais informadas manualmente pelo administrador.
+  manual
+  /// Coexistência: número segue ativo no app WhatsApp Business, conectado via
+  /// Embedded Signup. Depende da aprovação como Tech Provider.
+  coexistence
+}
+
+enum InboxConnectionStatus {
+  /// Criada, mas ainda sem validação bem-sucedida contra a Graph API.
+  pending
+  connected
+  /// Token revogado, número removido da WABA ou falha persistente.
+  error
+}
+
+enum InboxTokenType {
+  /// System User Token colado pelo administrador (modo manual).
+  system_user
+  /// Token escopado ao cliente, obtido pela troca do code do Embedded Signup.
+  business
+}
+
+enum TemplateCategory {
+  UTILITY
+  MARKETING
+  AUTHENTICATION
+}
+
+enum TemplateStatus {
+  APPROVED
+  PENDING
+  REJECTED
+  /// Pausado pela Meta por qualidade baixa. Volta a APPROVED sozinho.
+  PAUSED
+  /// Desabilitado após pausas repetidas. Não volta.
+  DISABLED
+  /// Estados menos comuns retornados pela Graph API.
+  IN_APPEAL
+  PENDING_DELETION
+  DELETED
+  LIMIT_EXCEEDED
+}
+
+/// Uma caixa de entrada é um número de WhatsApp conectado à plataforma.
+model Inbox {
+  id             String              @id @default(uuid()) @db.Uuid
+  name           String              @db.VarChar(120)
+  /// Número em formato de exibição, como informado pelo administrador.
+  phoneNumber    String              @map("phone_number") @db.VarChar(32)
+  /// Identificador do número na Cloud API. Único: um número, uma caixa.
+  phoneNumberId  String              @unique @map("phone_number_id") @db.VarChar(64)
+  wabaId         String              @map("waba_id") @db.VarChar(64)
+
+  /// AES-256-GCM. Nunca sai da API em nenhuma resposta.
+  tokenEncrypted String              @map("token_encrypted")
+  tokenType      InboxTokenType      @default(system_user) @map("token_type")
+
+  /// Imutável após a criação — converter um número entre os modos exigiria
+  /// tirá-lo da WABA atual, e números em coexistência não migram entre WABAs.
+  onboardingType InboxOnboardingType @default(manual) @map("onboarding_type")
+
+  connectionStatus InboxConnectionStatus @default(pending) @map("connection_status")
+  /// Última mensagem de erro da Meta, para diagnóstico do administrador.
+  connectionError  String?               @map("connection_error")
+  lastValidatedAt  DateTime?             @map("last_validated_at")
+
+  /// Teto de envio por segundo. Coexistência é fixa em 20 mps; Cloud API pura
+  /// escalona conforme o tier da Meta. Lido pela fila de envio na Fase 3 —
+  /// nunca use constante no código.
+  throughputLimitMps Int      @default(80) @map("throughput_limit_mps")
+
+  /// Preenchido ao concluir a sincronização inicial de histórico e contatos,
+  /// que a Meta limita a 24h após o onboarding de coexistência.
+  coexistenceSyncedAt DateTime? @map("coexistence_synced_at")
+
+  // Dados espelhados da Graph API, exibidos na tela da caixa.
+  verifiedName        String?   @map("verified_name") @db.VarChar(160)
+  qualityRating       String?   @map("quality_rating") @db.VarChar(24)
+  messagingTier       String?   @map("messaging_tier") @db.VarChar(48)
+  wabaName            String?   @map("waba_name") @db.VarChar(160)
+  wabaReviewStatus    String?   @map("waba_review_status") @db.VarChar(48)
+
+  webhookSubscribedAt DateTime? @map("webhook_subscribed_at")
+  templatesSyncedAt   DateTime? @map("templates_synced_at")
+
+  /// Soft delete: conversas e histórico são preservados para consulta.
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  members   InboxMember[]
+  templates Template[]
+
+  @@index([connectionStatus])
+  @@index([deletedAt])
+  @@map("inboxes")
+}
+
+/// Quais agentes atendem a caixa.
+model InboxMember {
+  inboxId String   @map("inbox_id") @db.Uuid
+  userId  String   @map("user_id") @db.Uuid
+  addedAt DateTime @default(now()) @map("added_at")
+
+  inbox Inbox @relation(fields: [inboxId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([inboxId, userId])
+  @@index([userId])
+  @@map("inbox_members")
+}
+
+/// Template de mensagem espelhado da WABA.
+///
+/// A fonte de verdade é a Meta: este registro é um cache sincronizado, nunca
+/// editado diretamente. Alterações vão pela Graph API e voltam pelo sync ou
+/// pelo webhook `message_template_status_update`.
+model Template {
+  id       String @id @default(uuid()) @db.Uuid
+  inboxId  String @map("inbox_id") @db.Uuid
+  /// Identificador do template na Meta.
+  metaId   String @map("meta_id") @db.VarChar(64)
+  name     String @db.VarChar(512)
+  language String @db.VarChar(16)
+
+  category TemplateCategory
+  status   TemplateStatus
+
+  /// Estrutura completa: header, body, footer e botões, como a Meta devolve.
+  /// Guardada em bruto para renderizar o preview e montar o envio sem
+  /// reinterpretar o formato dela.
+  components Json
+
+  /// Motivo da recusa, quando houver.
+  rejectedReason String? @map("rejected_reason") @db.VarChar(255)
+  qualityScore   String? @map("quality_score") @db.VarChar(24)
+
+  syncedAt  DateTime @default(now()) @map("synced_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  inbox Inbox @relation(fields: [inboxId], references: [id], onDelete: Cascade)
+
+  /// A Meta permite o mesmo nome em idiomas diferentes — o par é que é único.
+  @@unique([inboxId, name, language])
+  @@index([inboxId, status])
+  @@map("templates")
 }
 
 /// Trilha de auditoria de ações administrativas.

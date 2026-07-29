@@ -129,6 +129,27 @@ O raciocínio completo e o passo a passo estão em [`docs/04-hospedagem.md`](doc
 - Envio de e-mail de teste com diagnóstico do erro do servidor.
 - Templates de convite, recuperação de senha e boas-vindas.
 
+## O que a Fase 2 entrega
+
+**Conexão com a Cloud API**
+- Wizard em três passos: escolha do modo de conexão, credenciais e agentes.
+- Validação contra a Graph API antes de gravar — inclusive conferindo se o número pertence à WABA informada.
+- Erros da Meta traduzidos em mensagens acionáveis (token expirado, permissão faltando, ativo inexistente).
+- System User Token cifrado em AES-256-GCM, write-only: nunca retorna em nenhuma resposta.
+- Assinatura automática dos webhooks na WABA.
+- Modo coexistência visível e bloqueado, com o motivo — depende da aprovação como Tech Provider.
+
+**Templates**
+- Sincronização completa com paginação; a Meta é a fonte de verdade e o que sumiu de lá some daqui.
+- Criação de template pela aplicação, com validação local das regras da Meta antes do envio.
+- Exclusão, com o aviso de que a Meta remove todos os idiomas do mesmo nome.
+
+**Operação**
+- Health check das conexões a cada 30 minutos; falha marca a caixa com erro e o motivo aparece na tela.
+- Re-sync de templates a cada 6 horas, como rede de segurança para eventos de webhook perdidos.
+- Limpeza diária de convites e tokens vencidos.
+- Teto de throughput por caixa gravado no banco (20 msg/s em coexistência), lido pela fila de envio na Fase 3.
+
 ---
 
 ## Comandos

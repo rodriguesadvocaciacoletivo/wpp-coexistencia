@@ -3,7 +3,7 @@ import {
   Inbox,
   LogOut,
   MessagesSquare,
-  Settings,
+  Smartphone,
   Users,
   UsersRound,
   Mail,
@@ -45,6 +45,12 @@ export function AppLayout() {
                 Configurações
               </p>
               <NavItem
+                to="/configuracoes/caixas"
+                icon={<Smartphone className="size-4" />}
+              >
+                Caixas de entrada
+              </NavItem>
+              <NavItem
                 to="/configuracoes/usuarios"
                 icon={<Users className="size-4" />}
               >
@@ -62,10 +68,6 @@ export function AppLayout() {
               >
                 E-mail (SMTP)
               </NavItem>
-              <p className="mt-4 flex items-center gap-2 px-3 text-xs text-content-400">
-                <Settings className="size-3.5" aria-hidden />
-                Caixas de entrada chegam na Fase 2
-              </p>
             </>
           )}
         </nav>
