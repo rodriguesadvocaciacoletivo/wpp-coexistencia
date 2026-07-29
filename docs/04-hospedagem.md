@@ -107,8 +107,38 @@ cd apps/api && SEED_ADMIN_EMAIL=voce@empresa.com.br SEED_ADMIN_PASSWORD=umaSenha
 
 ### 2. Interface na Vercel
 
-Importe o repositório. O `vercel.json` na raiz já define build e diretório de saída — não altere o
-*Root Directory* no painel, ele deve continuar na raiz do repositório.
+Importe o repositório. Existem dois `vercel.json`, e a Vercel lê **apenas o que estiver dentro do
+Root Directory configurado no painel**:
+
+| Root Directory no painel | Arquivo lido | Observação |
+|---|---|---|
+| Vazio (raiz do repositório) — **recomendado** | `vercel.json` | Funciona sem nenhum ajuste extra |
+| `apps/web` | `apps/web/vercel.json` | Exige marcar *Include source files outside of the Root Directory in the Build Step*, senão o pacote `packages/shared` não existe no build |
+
+> ⚠️ **Erro `No Output Directory named "dist" found after the Build completed`**
+>
+> É o sintoma clássico de o `vercel.json` não ter sido lido: sem ele, a Vercel procura o padrão `dist`
+> em vez do caminho configurado. Confira, em *Project Settings → General*:
+>
+> 1. **Root Directory** — deixe vazio (raiz do repositório).
+> 2. **Build & Development Settings** — nenhum campo pode estar sobrescrito manualmente.
+>    Um valor digitado no painel tem precedência sobre o `vercel.json`. Se *Output Directory*,
+>    *Build Command* ou *Install Command* estiverem preenchidos, limpe os três (o botão *Override*
+>    precisa estar desligado).
+> 3. **Framework Preset** — deve estar em *Other*. Se estiver como *Vite*, a Vercel assume
+>    `dist` na raiz do repositório, que não existe neste monorepo.
+
+O build correto, verificado em clone limpo, é:
+
+```
+pnpm install --frozen-lockfile --filter @coexistente/web...
+pnpm --filter @coexistente/shared build && pnpm --filter @coexistente/web build
+→ apps/web/dist
+```
+
+O `--filter @coexistente/web...` restringe a instalação ao frontend e ao pacote compartilhado. Sem ele,
+a Vercel instalaria também NestJS e Prisma, que ela não usa — cerca de 20 segundos a mais por deploy e
+uma superfície de falha desnecessária.
 
 Configure uma única variável de ambiente:
 
