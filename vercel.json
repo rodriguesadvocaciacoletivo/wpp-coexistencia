@@ -1,8 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "installCommand": "pnpm install --frozen-lockfile --filter @coexistente/web...",
-  "buildCommand": "pnpm --filter @coexistente/shared build && pnpm --filter @coexistente/web build",
-  "outputDirectory": "apps/web/dist",
+  "buildCommand": "pnpm --filter @coexistente/shared build && pnpm --filter @coexistente/web build && rm -rf dist && cp -r apps/web/dist dist",
+  "outputDirectory": "dist",
   "framework": null,
   "rewrites": [
     { "source": "/((?!assets/).*)", "destination": "/index.html" }
