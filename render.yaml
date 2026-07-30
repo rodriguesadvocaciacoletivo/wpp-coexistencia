@@ -84,8 +84,12 @@ services:
       # primeiro convite, antes de existir configuração salva no banco.
       - key: SMTP_HOST
         sync: false
+      # Use a porta STARTTLS do provedor (587 na Resend, no Brevo e no Gmail).
+      # A 465 é TLS implícito e exige SMTP_SECURE=true.
       - key: SMTP_PORT
         sync: false
+      - key: SMTP_SECURE
+        value: "false"
       - key: SMTP_USER
         sync: false
       - key: SMTP_PASSWORD
