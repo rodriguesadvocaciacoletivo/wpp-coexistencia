@@ -3,8 +3,8 @@
 Plataforma de atendimento multiagente via **WhatsApp Cloud API oficial da Meta**, com suporte planejado a
 **coexistência** (mesmo número operando no app WhatsApp Business e na Cloud API).
 
-> **Fases entregues:** 1 (fundação), 2 (conexão Cloud API), 3 (conversas), 4 (templates e janela de 24h)
-> e 5 (etiquetas).
+> **Fases entregues:** 1 (fundação), 2 (conexão Cloud API), 3 (conversas), 4 (templates e janela de 24h),
+> 5 (etiquetas) e 6 (fila de webhooks e observabilidade).
 > Contexto e escopo completos em [`docs/`](docs/).
 
 ---
@@ -100,13 +100,12 @@ pnpm dev
 
 ## Hospedagem
 
-| Ambiente | Interface | API |
-|---|---|---|
-| Testes | Vercel (`vercel.json`) | Render via Docker (`render.yaml`) |
-| Produção | nginx na VPS | mesmo contêiner, no mesmo compose |
+Interface e API na **Vercel**, no mesmo projeto e na mesma origem; Postgres no **Supabase**.
+A fila de webhooks vive no próprio Postgres e o agendamento é o Vercel Cron (`vercel.json`) — não há worker.
 
-A API **não** roda em serverless: WebSocket (Fase 3) e workers de fila (Fase 6) exigem processo contínuo.
-O raciocínio completo e o passo a passo estão em [`docs/04-hospedagem.md`](docs/04-hospedagem.md).
+Duas limitações da plataforma continuam abertas e estão documentadas em
+[`docs/04-hospedagem.md`](docs/04-hospedagem.md): o **WebSocket** da Fase 3 não funciona em serverless, e a
+**mídia recebida** é gravada em disco efêmero. Configure `CRON_SECRET`, ou nada agendado roda.
 
 ---
 
@@ -210,6 +209,37 @@ O raciocínio completo e o passo a passo estão em [`docs/04-hospedagem.md`](doc
 - Filtro por etiqueta na lista, combinável com aba, caixa e busca.
 - Excluir mostra em quantas conversas a etiqueta está antes de confirmar; as conversas permanecem.
 
+## O que a Fase 6 entrega
+
+**Fila de webhooks, em Postgres**
+
+A fila vive no próprio banco, não em Redis com worker: a aplicação roda em funções serverless, onde não há
+processo contínuo para hospedar um consumidor.
+
+- Reserva com `FOR UPDATE SKIP LOCKED` — várias invocações drenam em paralelo sem pegar o mesmo evento.
+- Recuo exponencial com jitter (20s, 40s, 80s… teto de 1h). A falha típica é destino fora do ar; retentar
+  em rajada só queima as cinco tentativas antes de ele voltar.
+- Evento reservado por invocação que morreu no meio é recolhido pelo dreno seguinte, após 5 minutos. É o que
+  garante que derrubar o processo durante uma rajada não perca nada.
+- Esgotadas as tentativas, o evento vai para dead letter — nunca é descartado.
+
+**Dreno em dois gatilhos**
+- Depois do ACK, via `waitUntil`: mantém a latência do caminho feliz sem atrasar a resposta à Meta.
+- Por cron de 1 minuto, como rede de segurança para o que falhou e para órfãos.
+- O dreno para antes do teto de execução da função e devolve o resto à fila, em vez de morrer no meio.
+
+**Jobs periódicos que voltaram a rodar**
+- `@nestjs/schedule` não funciona em serverless — health check, re-sync de templates e limpeza estavam
+  desligados na Vercel. Os mesmos métodos agora ficam em `/api/jobs/*`, chamados pelo cron da plataforma.
+- Rotas protegidas por `CRON_SECRET`, com comparação em tempo constante.
+
+**Observabilidade**
+- Tela em Configurações → Fila de webhooks: profundidade por status, processados na última hora, idade do
+  pendente mais antigo e um veredito de saúde.
+- Dead letter inspecionável, com erro e payload cru, e reprocessamento individual ou em lote.
+- Logs estruturados em JSON para os eventos da fila — o painel da Vercel é busca por texto, e frase em
+  português não se consulta.
+
 ---
 
 ## Comandos
@@ -234,11 +264,12 @@ apps/
   api/                 NestJS
     prisma/            schema e seed
     src/
-      common/          crypto, prisma, guards, auditoria
+      common/          crypto, prisma, guards, auditoria, background,
+                       logging estruturado
       config/          validação de ambiente
       modules/         auth, users, teams, settings, mail, health,
                        inboxes, meta, templates, labels, conversations,
-                       webhooks, realtime, storage
+                       webhooks, jobs, realtime, storage
   web/                 React + Vite
     src/
       components/      componentes de interface

@@ -13,8 +13,14 @@ import { TemplatesService } from '../templates/templates.service';
  * periódica, a plataforma só descobre isso quando um atendente tenta responder
  * um cliente e falha.
  *
- * Quando houver mais de uma instância da API (Fase 6), estes jobs precisam de
- * trava distribuída no Redis para não rodarem em paralelo.
+ * Os decoradores `@Cron` só valem onde o ScheduleModule é registrado, ou seja,
+ * fora da Vercel. Em serverless os mesmos métodos são chamados pelas rotas de
+ * `/jobs`, acionadas pelo cron da plataforma.
+ *
+ * Duas execuções podem se sobrepor — não há trava distribuída. Para o que
+ * fazem aqui, o pior caso é trabalho repetido: revalidar uma credencial já
+ * revalidada e reescrever um template com o mesmo conteúdo. Nada que corrompa
+ * estado. Se algum job passar a fazer coisa não idempotente, isso muda.
  */
 @Injectable()
 export class InboxesScheduler {

@@ -15,6 +15,7 @@ import { InboxDetailPage } from './pages/admin/InboxDetailPage';
 import { UsersPage } from './pages/admin/UsersPage';
 import { TeamsPage } from './pages/admin/TeamsPage';
 import { LabelsPage } from './pages/admin/LabelsPage';
+import { WebhookQueuePage } from './pages/admin/WebhookQueuePage';
 import { SmtpSettingsPage } from './pages/admin/SmtpSettingsPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 
@@ -82,6 +83,10 @@ export function App() {
         <Route
           path="/configuracoes/etiquetas"
           element={<RequireAdmin><LabelsPage /></RequireAdmin>}
+        />
+        <Route
+          path="/configuracoes/fila"
+          element={<RequireAdmin><WebhookQueuePage /></RequireAdmin>}
         />
         <Route
           path="/configuracoes/smtp"

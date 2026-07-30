@@ -547,9 +547,21 @@ model WebhookEvent {
   attempts    Int                @default(0)
   lastError   String?            @map("last_error") @db.Text
   processedAt DateTime?          @map("processed_at")
-  createdAt   DateTime           @default(now()) @map("created_at")
+
+  /// Quando este evento volta a ser elegível. Preenchido na falha, com recuo
+  /// exponencial — retentar em rajada um destino que acabou de cair só gasta
+  /// as tentativas antes de ele voltar.
+  nextAttemptAt DateTime? @map("next_attempt_at")
+
+  /// Marcado ao reservar o evento para processamento. Serve para recuperar
+  /// eventos órfãos: em serverless a invocação pode ser morta no meio, e sem
+  /// isto o evento ficaria preso em `processing` para sempre.
+  lockedAt DateTime? @map("locked_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
 
   @@index([status, createdAt])
+  @@index([status, nextAttemptAt])
   @@map("webhook_events")
 }
 

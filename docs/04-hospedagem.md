@@ -6,38 +6,66 @@ descartável. A produção final vai para a VPS.
 
 ---
 
-## 🔴 Por que a API não vai para a Vercel
+## ✅ A arquitetura adotada
 
-A Vercel executa **funções serverless**: um processo nasce, responde uma requisição e morre. Três peças da
-arquitetura não sobrevivem a isso:
-
-| Peça | Fase | O que acontece na Vercel |
-|---|---|---|
-| **WebSocket** (mensagem nova aparecendo em < 2s) | 3 | Não funciona. Não há conexão persistente. |
-| **Worker BullMQ** (fila de webhooks com retry e dead letter) | 6 | Não funciona. Exige processo contínuo consumindo a fila. |
-| **Pool de conexões do Postgres** | 1 em diante | Cada invocação abre conexão nova; o Postgres esgota o limite. |
-
-Adaptar tudo isso para serverless seria trabalho jogado fora — a VPS é um processo contínuo, e voltaríamos
-ao ponto de partida na migração. Pior: os critérios de aceite da Fase 3 ("mensagem visível ao agente em
-menos de 2 segundos") e da Fase 6 ("derrubar o worker durante rajada não perde evento") seriam **impossíveis
-de validar** no ambiente onde você estaria testando.
-
-## ✅ A divisão adotada
+> **Decisão do cliente (2026-07-30):** tudo na Vercel, com Postgres no Supabase. O Render foi descartado.
+> A Fase 6 foi construída dentro dessa restrição — este documento descreve o resultado, não a alternativa.
 
 ```
-Interface (React)  →  Vercel
-API + Redis        →  Render (Docker)
+Interface (React)  →  Vercel (mesmo projeto)
+API (NestJS)       →  Vercel, função serverless em api/index.js
 Postgres           →  Supabase
+Fila de webhooks   →  o próprio Postgres
+Agendamento        →  Vercel Cron
 ```
 
-O Postgres fica no **Supabase**, não no Render: o banco gratuito do Render é **removido após 30 dias**, o que
-faria o ambiente de testes desaparecer no meio do desenvolvimento. O do Supabase persiste.
+Interface e API no mesmo projeto e na mesma origem, o que também elimina o cookie entre domínios.
 
-A Vercel continua sendo excelente para o que ela faz bem: servir o SPA, com deploy automático a cada push e
-preview por branch.
+## Como cada peça sobrevive ao serverless
 
-A API roda em **contêiner Docker** no Render — o mesmo `apps/api/Dockerfile` que vai para a VPS depois.
-Migrar deixa de ser reescrita e vira mudança de endereço.
+A Vercel executa funções: um processo nasce, responde e é congelado. Isso exige uma solução por peça.
+
+| Peça | Como funciona aqui |
+|---|---|
+| **Fila de webhooks** | Tabela `webhook_events` no Postgres. A reserva usa `FOR UPDATE SKIP LOCKED`, então várias invocações drenam em paralelo sem pegar o mesmo evento. |
+| **Consumidor da fila** | Não há worker. O dreno roda depois do ACK, via `waitUntil`, e o cron de 1 minuto é a rede de segurança para retentativas. |
+| **Invocação morta no meio** | `locked_at` marca a reserva. Evento reservado há mais de 5 minutos é recolhido pelo dreno seguinte. É o que substitui o "derrubar o worker não perde evento". |
+| **Jobs periódicos** | `@nestjs/schedule` não roda em serverless. Os mesmos métodos ficam expostos em `/api/jobs/*` e a Vercel chama nos horários de `vercel.json`. |
+| **Pool do Postgres** | `DATABASE_URL` aponta para o pooler do Supabase (porta 6543) com `connection_limit=1`. Cada invocação usa uma conexão e devolve. |
+
+### `waitUntil`, e por que ele era indispensável
+
+O código original disparava o processamento com `setImmediate` depois de responder. Fora da Vercel funciona:
+o processo continua vivo. Na Vercel, **não** — a invocação é congelada no instante em que responde, e o
+trabalho pendente morre com ela. Os eventos eram persistidos e nunca processados.
+
+`waitUntil` (de `@vercel/functions`) informa à plataforma que a invocação só pode ser encerrada quando a
+promessa terminar. O ACK continua saindo na hora; o processamento é que passa a ter garantia de acontecer.
+
+## O que continua sem funcionar na Vercel
+
+Duas coisas não têm solução dentro desta arquitetura. Ficam registradas para não serem redescobertas em
+produção:
+
+| Peça | Situação |
+|---|---|
+| **WebSocket** (Fase 3) | Não funciona: não há conexão persistente. A tela não recebe mensagem nova em tempo real — depende de recarregar ou de polling, que ainda não existe. |
+| **Mídia recebida** | `StorageService` grava em disco local, que é efêmero na Vercel. Arquivos recebidos somem entre invocações. A saída natural é o Supabase Storage. |
+
+---
+
+## Cron da Vercel: atenção ao plano
+
+Os quatro cron jobs estão em `vercel.json`. O de dreno roda **a cada minuto** — é ele que faz a retentativa
+acontecer sem alguém clicar.
+
+O plano **Hobby limita cron a uma execução por dia**, o que reduz o dreno agendado a quase nada. O caminho
+feliz continua íntegro (o `waitUntil` processa na hora), mas um evento que falhar só seria retentado no dia
+seguinte. Para o agendamento de minuto valer, é preciso o plano **Pro**.
+
+Todas as rotas de `/api/jobs/*` exigem `CRON_SECRET` no header `Authorization: Bearer`. Sem a variável
+configurada elas respondem 403 — preferível a deixar um endereço que processa a fila aberto a quem descobrir
+a URL.
 
 ---
 

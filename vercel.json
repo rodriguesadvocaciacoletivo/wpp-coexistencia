@@ -11,6 +11,12 @@
       "includeFiles": "apps/api/dist/**"
     }
   },
+  "crons": [
+    { "path": "/api/jobs/drain", "schedule": "* * * * *" },
+    { "path": "/api/jobs/health-check", "schedule": "*/30 * * * *" },
+    { "path": "/api/jobs/resync-templates", "schedule": "0 */6 * * *" },
+    { "path": "/api/jobs/cleanup", "schedule": "0 4 * * *" }
+  ],
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/index" },
     { "source": "/((?!assets/).*)", "destination": "/index.html" }

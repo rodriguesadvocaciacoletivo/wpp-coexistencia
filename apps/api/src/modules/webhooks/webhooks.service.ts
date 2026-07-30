@@ -1,23 +1,30 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { BackgroundService } from '../../common/background/background.service';
+import { logEvent } from '../../common/logging/structured';
 import { TemplatesService } from '../templates/templates.service';
 import { MessageIngestionService } from '../conversations/message-ingestion.service';
+import { WebhookQueueService } from './webhook-queue.service';
 import { buildEventKey, type WebhookPayload, type WebhookValue } from './webhook.types';
 
-const MAX_ATTEMPTS = 5;
+/** Quanto tempo um dreno pode ocupar antes de devolver o resto à fila. */
+const DRAIN_BUDGET_MS = 20_000;
+/** Eventos reservados por rodada. */
+const BATCH_SIZE = 10;
 
 /**
  * Recepção e processamento dos eventos da Meta.
  *
- * O fluxo é deliberadamente em duas etapas: persistir e responder, depois
- * processar. Isso mantém o ACK rápido e, mais importante, garante que um evento
- * já recebido não se perca se o processamento falhar — ele fica no banco e pode
- * ser retentado.
+ * O fluxo é em duas etapas: persistir e responder, depois processar. Isso
+ * mantém o ACK rápido e garante que um evento recebido não se perca se o
+ * processamento falhar — ele fica no banco e volta pela fila.
  *
- * O disparo do processamento é in-process nesta fase. A Fase 6 troca esta
- * chamada por um job no BullMQ, com retry exponencial e dead letter, sem mexer
- * na lógica de processamento em si.
+ * A fila vive no próprio Postgres, e não em um worker dedicado, porque a
+ * aplicação roda em funções serverless: não há processo contínuo para hospedar
+ * um consumidor. O dreno é disparado de dois lugares — logo após o ACK, para
+ * a latência do caminho feliz, e por cron, como rede de segurança para o que
+ * falhou e precisa de nova tentativa.
  */
 @Injectable()
 export class WebhooksService {
@@ -27,11 +34,13 @@ export class WebhooksService {
     private readonly prisma: PrismaService,
     private readonly ingestion: MessageIngestionService,
     private readonly templates: TemplatesService,
+    private readonly queue: WebhookQueueService,
+    private readonly background: BackgroundService,
   ) {}
 
   async enqueue(body: unknown): Promise<void> {
     const payload = body as WebhookPayload;
-    const created: string[] = [];
+    let created = 0;
 
     for (const entry of payload.entry ?? []) {
       for (const change of entry.changes ?? []) {
@@ -39,23 +48,21 @@ export class WebhooksService {
         const value = change.value ?? {};
 
         for (const eventKey of buildEventKey(field, value)) {
-          const id = await this.persist(eventKey, field, entry.id, value);
-
-          if (id) {
-            created.push(id);
+          if (await this.persist(eventKey, field, entry.id, value)) {
+            created += 1;
           }
         }
       }
     }
 
-    if (created.length === 0) {
+    if (created === 0) {
       return;
     }
 
-    // Dispara sem aguardar: a resposta HTTP não pode esperar o processamento.
-    setImmediate(() => {
-      void this.processPending(created);
-    });
+    // Depois da resposta, não antes: o ACK da Meta não espera processamento.
+    // O dreno pega da fila em vez de receber os ids recém-criados — assim
+    // aproveita a viagem para levar junto o que ficou para trás.
+    this.background.run('webhook-drain', () => this.drain());
   }
 
   /**
@@ -67,9 +74,9 @@ export class WebhooksService {
     field: string,
     wabaId: string | undefined,
     value: WebhookValue,
-  ): Promise<string | null> {
+  ): Promise<boolean> {
     try {
-      const event = await this.prisma.webhookEvent.create({
+      await this.prisma.webhookEvent.create({
         data: {
           eventKey,
           field,
@@ -79,69 +86,66 @@ export class WebhooksService {
         select: { id: true },
       });
 
-      return event.id;
+      return true;
     } catch (error) {
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2002'
       ) {
         this.logger.debug(`Evento duplicado descartado: ${eventKey}`);
-        return null;
+        return false;
       }
 
       throw error;
     }
   }
 
-  async processPending(eventIds: string[]): Promise<void> {
-    for (const id of eventIds) {
-      await this.processOne(id);
+  /**
+   * Consome a fila até esvaziar ou estourar o orçamento de tempo.
+   *
+   * O orçamento existe porque a função serverless é morta ao atingir o teto de
+   * execução. Parar antes e devolver o resto deixa os eventos disponíveis para
+   * o próximo dreno, em vez de morrerem reservados no meio do caminho.
+   */
+  async drain(budgetMs = DRAIN_BUDGET_MS): Promise<{
+    processed: number;
+    failed: number;
+  }> {
+    const deadline = Date.now() + budgetMs;
+    let processed = 0;
+    let failed = 0;
+
+    while (Date.now() < deadline) {
+      const batch = await this.queue.claim(BATCH_SIZE);
+
+      if (batch.length === 0) {
+        break;
+      }
+
+      for (const event of batch) {
+        const startedAt = Date.now();
+
+        try {
+          await this.dispatch(event.field, event.payload, event.wabaId);
+          await this.queue.markProcessed(event.id, startedAt);
+          processed += 1;
+        } catch (error) {
+          await this.queue.markFailed(
+            event.id,
+            event.attempts,
+            error,
+            startedAt,
+          );
+          failed += 1;
+        }
+      }
     }
-  }
 
-  async processOne(eventId: string): Promise<void> {
-    const event = await this.prisma.webhookEvent.findUnique({
-      where: { id: eventId },
-    });
-
-    if (!event || event.status === 'processed') {
-      return;
+    if (processed > 0 || failed > 0) {
+      logEvent('info', 'webhook.drain', { processed, failed });
     }
 
-    await this.prisma.webhookEvent.update({
-      where: { id: eventId },
-      data: { status: 'processing', attempts: { increment: 1 } },
-    });
-
-    try {
-      await this.dispatch(
-        event.field,
-        event.payload as unknown as WebhookValue,
-        event.wabaId,
-      );
-
-      await this.prisma.webhookEvent.update({
-        where: { id: eventId },
-        data: { status: 'processed', processedAt: new Date(), lastError: null },
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const attempts = event.attempts + 1;
-
-      // Esgotadas as tentativas, o evento vai para dead letter em vez de ser
-      // descartado — perder uma mensagem de cliente em silêncio é pior do que
-      // deixá-la parada esperando intervenção.
-      const status = attempts >= MAX_ATTEMPTS ? 'dead' : 'failed';
-
-      await this.prisma.webhookEvent.update({
-        where: { id: eventId },
-        data: { status, lastError: message },
-      });
-
-      this.logger.error(
-        `Falha ao processar evento ${eventId} (tentativa ${attempts}/${MAX_ATTEMPTS}): ${message}`,
-      );
-    }
+    return { processed, failed };
   }
 
   private async dispatch(
@@ -177,18 +181,21 @@ export class WebhooksService {
     }
   }
 
-  /** Reprocessamento manual — usado pela tela de administração na Fase 6. */
-  async retryFailed(): Promise<number> {
-    const failed = await this.prisma.webhookEvent.findMany({
-      where: { status: { in: ['failed', 'dead'] } },
-      select: { id: true },
-      take: 100,
-    });
+  /**
+   * Devolve eventos da dead letter à fila e drena na sequência.
+   *
+   * Reenfileira em vez de processar direto: assim o reprocessamento passa pela
+   * mesma reserva e pelo mesmo recuo do fluxo normal, e o administrador não
+   * consegue provocar dois processamentos simultâneos do mesmo evento clicando
+   * duas vezes.
+   */
+  async retry(ids?: string[]): Promise<number> {
+    const count = await this.queue.requeue(ids);
 
-    for (const event of failed) {
-      await this.processOne(event.id);
+    if (count > 0) {
+      this.background.run('webhook-drain-retry', () => this.drain());
     }
 
-    return failed.length;
+    return count;
   }
 }

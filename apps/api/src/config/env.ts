@@ -32,6 +32,15 @@ const envSchema = z.object({
   DIRECT_URL: z.string().optional(),
   REDIS_URL: z.string().default('redis://localhost:6379'),
 
+  /**
+   * Segredo das rotas de `/jobs`, acionadas pelo cron da plataforma.
+   *
+   * Opcional para não travar o desenvolvimento local, onde os jobs rodam pelo
+   * `@nestjs/schedule`. Sem ele, as rotas de cron respondem 403 — em serverless
+   * isso significa que nada agendado roda, e o aviso sai no log.
+   */
+  CRON_SECRET: z.string().optional(),
+
   JWT_SECRET: z
     .string()
     .min(32, 'JWT_SECRET precisa ter no mínimo 32 caracteres'),

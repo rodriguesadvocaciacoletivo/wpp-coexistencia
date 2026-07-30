@@ -1,5 +1,6 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
+  Activity,
   Inbox,
   LogOut,
   MessagesSquare,
@@ -70,6 +71,12 @@ export function AppLayout() {
                 icon={<Tags className="size-4" />}
               >
                 Etiquetas
+              </NavItem>
+              <NavItem
+                to="/configuracoes/fila"
+                icon={<Activity className="size-4" />}
+              >
+                Fila de webhooks
               </NavItem>
               <NavItem
                 to="/configuracoes/smtp"

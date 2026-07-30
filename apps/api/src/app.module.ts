@@ -7,6 +7,7 @@ import { validateEnv } from './config/env';
 import { PrismaModule } from './common/prisma/prisma.module';
 import { CryptoModule } from './common/crypto/crypto.module';
 import { AuditModule } from './common/audit/audit.module';
+import { BackgroundModule } from './common/background/background.module';
 import { JwtAuthGuard } from './common/auth/jwt-auth.guard';
 import { RolesGuard } from './common/auth/roles.guard';
 import { MailModule } from './modules/mail/mail.module';
@@ -22,6 +23,7 @@ import { StorageModule } from './modules/storage/storage.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
 import { ConversationsModule } from './modules/conversations/conversations.module';
 import { WebhooksModule } from './modules/webhooks/webhooks.module';
+import { JobsModule } from './modules/jobs/jobs.module';
 import { HealthModule } from './modules/health/health.module';
 
 @Module({
@@ -42,6 +44,7 @@ import { HealthModule } from './modules/health/health.module';
     PrismaModule,
     CryptoModule,
     AuditModule,
+    BackgroundModule,
     MailModule,
     MetaModule,
     StorageModule,
@@ -55,6 +58,7 @@ import { HealthModule } from './modules/health/health.module';
     LabelsModule,
     ConversationsModule,
     WebhooksModule,
+    JobsModule,
     HealthModule,
   ],
   providers: [
