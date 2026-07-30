@@ -1,6 +1,7 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { ApiError } from '../../lib/api';
+import { ServerCrash } from 'lucide-react';
+import { ApiError, checkApiHealth } from '../../lib/api';
 import { useAuthStore } from '../../stores/auth.store';
 import { AuthLayout } from '../../layouts/AuthLayout';
 import { Button, Field, Input } from '../../components/ui';
@@ -14,6 +15,13 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [apiDown, setApiDown] = useState(false);
+
+  // Sondagem silenciosa: se a API não responde, o usuário fica sabendo antes
+  // de digitar a senha e concluir que errou as credenciais.
+  useEffect(() => {
+    void checkApiHealth().then((status) => setApiDown(status === 'down'));
+  }, []);
 
   const handleSubmit = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
@@ -49,6 +57,19 @@ export function LoginPage() {
         </Link>
       }
     >
+      {apiDown && (
+        <div
+          role="status"
+          className="mb-4 flex gap-2.5 rounded-lg border border-warning-400/30 bg-warning-400/10 p-3.5 text-sm text-warning-400"
+        >
+          <ServerCrash className="mt-0.5 size-4 shrink-0" aria-hidden />
+          <span>
+            O servidor não está respondendo. Se ele estava parado, pode levar até
+            um minuto para iniciar — tente entrar mesmo assim.
+          </span>
+        </div>
+      )}
+
       <form onSubmit={(event) => void handleSubmit(event)} className="flex flex-col gap-4">
         <Field label="E-mail" htmlFor="email">
           <Input
