@@ -32,6 +32,9 @@ type InboxWithCounts = Inbox & {
   _count?: { templates: number; members: number };
 };
 
+/** Caminho do webhook, já com o prefixo global da API. */
+const WEBHOOK_PATH = '/api/webhooks/meta';
+
 @Injectable()
 export class InboxesService {
   private readonly logger = new Logger(InboxesService.name);
@@ -444,27 +447,37 @@ export class InboxesService {
    * conexão da caixa por causa de um `.env` de desenvolvimento.
    */
   private webhookCallbackUrl(): string | null {
-    const base = this.config.get<string>('PUBLIC_API_URL')?.replace(/\/+$/, '');
+    const configured = this.config.get<string>('PUBLIC_API_URL')?.trim();
 
-    if (!base) {
+    if (!configured) {
       return null;
     }
+
+    let url: URL;
 
     try {
-      const { hostname, protocol } = new URL(base);
-      const local =
-        hostname === 'localhost' ||
-        hostname === '127.0.0.1' ||
-        hostname.endsWith('.local');
-
-      if (local || protocol !== 'https:') {
-        return null;
-      }
+      url = new URL(configured);
     } catch {
+      this.logger.warn(
+        `PUBLIC_API_URL não é uma URL válida ("${configured}") — registro automático do webhook desabilitado.`,
+      );
       return null;
     }
 
-    return `${base}/api/webhooks/meta`;
+    const local =
+      url.hostname === 'localhost' ||
+      url.hostname === '127.0.0.1' ||
+      url.hostname.endsWith('.local');
+
+    if (local || url.protocol !== 'https:') {
+      return null;
+    }
+
+    // Só a origem: qualquer caminho em PUBLIC_API_URL é descartado.
+    // A variável é preenchida ora com `/api` no fim, ora sem — e concatenar
+    // em cima do que veio produzia `/api/api/webhooks/meta`, que a Meta
+    // recusa com "Callback verification failed: HTTP Status Code = 404".
+    return `${url.origin}${WEBHOOK_PATH}`;
   }
 
   private async subscribeWebhooks(
