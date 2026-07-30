@@ -4,9 +4,9 @@ import tailwindcss from '@tailwindcss/vite';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
-// Resolvido a partir da localização deste arquivo, não do cwd — a Vercel roda
-// o comando de build de dentro de apps/web, e qualquer caminho relativo ao cwd
-// se torna imprevisível.
+// Resolvido a partir da localização deste arquivo, nunca do cwd: dependendo de
+// como a Vercel dispara o build, o diretório de trabalho pode ser a raiz do
+// repositório ou apps/web, e caminhos relativos ficam imprevisíveis.
 const here = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
@@ -15,13 +15,10 @@ export default defineConfig({
   // prefixo VITE_ chegam ao bundle do navegador.
   envDir: '../../',
   build: {
-    // Na Vercel, a saída vai para dist na RAIZ do repositório — que é onde ela
-    // procura, independentemente de override no painel ou de Framework Preset.
-    // O caminho é resolvido de forma absoluta a partir daqui, então funciona
-    // seja qual for o diretório em que o build é disparado.
-    // Localmente, mantém apps/web/dist para não surpreender quem roda `pnpm build`.
-    outDir: process.env.VERCEL ? resolve(here, '../../dist') : 'dist',
-    // Necessário para o Vite aceitar limpar um outDir fora da raiz do projeto.
+    // Caminho absoluto: a saída vai para apps/web/dist independentemente de
+    // onde o comando foi disparado. O espelhamento para a raiz do repositório
+    // (necessário na Vercel) é feito por scripts/mirror-dist.mjs.
+    outDir: resolve(here, 'dist'),
     emptyOutDir: true,
   },
   server: {
