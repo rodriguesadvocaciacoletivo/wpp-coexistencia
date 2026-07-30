@@ -1,14 +1,20 @@
 import { useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Mic, Paperclip, Send, Square, TriangleAlert, X } from 'lucide-react';
 import {
-  isWindowOpen,
-  windowRemainingLabel,
-  type ConversationDto,
-} from '@coexistente/shared';
+  LayoutTemplate,
+  Mic,
+  Paperclip,
+  Send,
+  Square,
+  TriangleAlert,
+  X,
+} from 'lucide-react';
+import type { ConversationDto } from '@coexistente/shared';
 import { ApiError, getAccessToken } from '../../lib/api';
 import { Button, cn } from '../../components/ui';
+import { TemplatePicker } from './TemplatePicker';
+import { useConversationWindow } from './use-window-state';
 
 const API_URL =
   (import.meta.env.VITE_API_URL as string | undefined) ??
@@ -24,9 +30,11 @@ export function Composer({ conversation }: { conversation: ConversationDto }) {
   const [tab, setTab] = useState<Tab>('reply');
   const [text, setText] = useState('');
   const [file, setFile] = useState<File | null>(null);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
   const recorder = useAudioRecorder();
 
-  const windowOpen = isWindowOpen(conversation.windowExpiresAt);
+  const messageWindow = useConversationWindow(conversation.windowExpiresAt);
+  const windowOpen = messageWindow.open;
   const isNote = tab === 'note';
   // Nota interna não passa pela Meta, então a janela de 24h não se aplica.
   const blocked = !isNote && !windowOpen;
@@ -128,18 +136,27 @@ export function Composer({ conversation }: { conversation: ConversationDto }) {
                 windowOpen ? 'text-content-400' : 'text-warning-400',
               )}
             >
-              {windowRemainingLabel(conversation.windowExpiresAt)}
+              {messageWindow.label}
             </span>
           )}
         </div>
 
         {blocked && (
-          <div className="mb-2 flex gap-2 rounded-lg border border-warning-400/30 bg-warning-400/10 p-3 text-xs text-warning-400">
-            <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
-            <span>
+          <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-warning-400/30 bg-warning-400/10 p-3 text-xs text-warning-400">
+            <TriangleAlert className="size-4 shrink-0" aria-hidden />
+            <span className="min-w-0 flex-1">
               A janela de 24 horas está fechada. A Meta só aceita template para
-              retomar a conversa — o envio por template chega na Fase 4.
+              retomar a conversa.
             </span>
+            <Button
+              type="button"
+              variant="secondary"
+              className="shrink-0 px-3 py-1.5 text-xs"
+              onClick={() => setTemplatesOpen(true)}
+            >
+              <LayoutTemplate className="size-3.5" aria-hidden />
+              Escolher template
+            </Button>
           </div>
         )}
 
@@ -214,6 +231,16 @@ export function Composer({ conversation }: { conversation: ConversationDto }) {
               <Paperclip className="size-4" aria-hidden />
             </IconButton>
 
+            {/* Template também serve dentro da janela — lembrete, confirmação,
+                aviso de entrega. Restringir ao bloqueio só criaria atrito. */}
+            <IconButton
+              label="Enviar template"
+              disabled={isNote || send.isPending}
+              onClick={() => setTemplatesOpen(true)}
+            >
+              <LayoutTemplate className="size-4" aria-hidden />
+            </IconButton>
+
             {recorder.recording ? (
               <IconButton
                 label="Parar gravação"
@@ -251,6 +278,12 @@ export function Composer({ conversation }: { conversation: ConversationDto }) {
           </div>
         </form>
       </div>
+
+      <TemplatePicker
+        conversation={conversation}
+        open={templatesOpen}
+        onClose={() => setTemplatesOpen(false)}
+      />
     </div>
   );
 }

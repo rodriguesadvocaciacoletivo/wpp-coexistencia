@@ -3,6 +3,7 @@ import {
   IsBooleanString,
   IsIn,
   IsInt,
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -101,6 +102,20 @@ export class SendMessageDto {
   @IsOptional()
   @IsBooleanString({ message: 'Valor inválido para nota privada.' })
   privateNote?: string;
+}
+
+/**
+ * Envio de template. JSON, e não multipart como o envio comum: aqui não há
+ * arquivo, e as variáveis são um objeto aninhado que não sobreviveria a um
+ * formulário sem serialização manual.
+ */
+export class SendTemplateDto {
+  @IsUUID('4', { message: 'Template inválido.' })
+  templateId!: string;
+
+  @IsOptional()
+  @IsObject({ message: 'Variáveis em formato inválido.' })
+  variables?: Record<string, string>;
 }
 
 export class RenameContactDto {

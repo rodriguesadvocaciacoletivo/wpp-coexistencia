@@ -3,7 +3,7 @@
 Plataforma de atendimento multiagente via **WhatsApp Cloud API oficial da Meta**, com suporte planejado a
 **coexistência** (mesmo número operando no app WhatsApp Business e na Cloud API).
 
-> **Fase atual:** Fase 1 — Fundação (autenticação, equipe, SMTP).
+> **Fases entregues:** 1 (fundação), 2 (conexão Cloud API), 3 (conversas) e 4 (templates e janela de 24h).
 > Contexto e escopo completos em [`docs/`](docs/).
 
 ---
@@ -171,6 +171,27 @@ O raciocínio completo e o passo a passo estão em [`docs/04-hospedagem.md`](doc
 - Bloqueio de texto livre fora da janela de 24h, como a Meta exige.
 - WebSocket empurra mensagens, status e atribuições em tempo real.
 
+## O que a Fase 4 entrega
+
+**Templates no atendimento**
+- Modal de escolha com busca por nome **e** por texto do corpo, sem depender de acento.
+- Templates agrupados por nome, com seletor de idioma — a Meta trata cada idioma como um registro,
+  para quem atende é uma mensagem só.
+- Só aparecem os aprovados: os demais não podem ser enviados, e mostrá-los no meio do atendimento
+  só gera tentativa frustrada. O catálogo completo, com motivo de recusa, fica na tela da caixa.
+- Variáveis de cabeçalho, corpo e botão de URL, com pré-visualização do que o contato vai receber.
+- Envio bloqueado enquanto faltar variável — a Meta recusaria o envio inteiro.
+- Valores são normalizados antes do envio: quebra de linha, tabulação e espaços repetidos derrubam
+  o template com o erro 132000, e colar de planilha traz isso o tempo todo.
+
+**Janela de 24 horas**
+- Indicador no cabeçalho da conversa com o tempo restante, recalculado sozinho.
+- O composer se fecha sozinho quando a janela expira (conferido a cada 30s), sem recarregar a página.
+- Com a janela fechada, o aviso traz o botão que abre o modal — o caminho de saída fica no lugar
+  onde o atendente esbarrou no bloqueio.
+- Template continua disponível **dentro** da janela: também serve para lembrete e confirmação.
+- Enviar template **não** reabre a janela. Só mensagem do contato faz isso, e é assim na Meta.
+
 ---
 
 ## Comandos
@@ -197,7 +218,9 @@ apps/
     src/
       common/          crypto, prisma, guards, auditoria
       config/          validação de ambiente
-      modules/         auth, users, teams, settings, mail, health
+      modules/         auth, users, teams, settings, mail, health,
+                       inboxes, meta, templates, conversations,
+                       webhooks, realtime, storage
   web/                 React + Vite
     src/
       components/      componentes de interface

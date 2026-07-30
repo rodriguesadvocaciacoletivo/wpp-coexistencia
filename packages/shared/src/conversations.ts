@@ -133,6 +133,15 @@ export interface SendMessageInput {
   attachmentIds?: string[];
 }
 
+export interface SendTemplateInput {
+  templateId: string;
+  /**
+   * Valores das variáveis, indexados pela `key` de `TemplateVariable`
+   * (`body.1`, `header.1`, `button.0.1`).
+   */
+  variables?: Record<string, string>;
+}
+
 export interface UpdateConversationInput {
   assigneeId?: string | null;
   teamId?: string | null;
@@ -157,8 +166,8 @@ export const FILTER_LABELS: Record<ConversationFilter, string> = {
 /**
  * Estado da janela de 24h.
  *
- * Fora dela a Meta só aceita template — o composer bloqueia texto livre na
- * Fase 4 com base nisto.
+ * Fora dela a Meta só aceita template — o composer bloqueia texto livre com
+ * base nisto e oferece o modal de templates como saída.
  */
 export function isWindowOpen(windowExpiresAt: string | null): boolean {
   if (!windowExpiresAt) {

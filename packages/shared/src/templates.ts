@@ -124,3 +124,169 @@ export function templateHeaderText(components: TemplateComponent[]): string | nu
 export function templateFooterText(components: TemplateComponent[]): string | null {
   return components.find((c) => c.type?.toUpperCase() === 'FOOTER')?.text ?? null;
 }
+
+export interface TemplateButton {
+  /** URL, PHONE_NUMBER, QUICK_REPLY, COPY_CODE… */
+  type: string;
+  text: string;
+  url?: string;
+  phoneNumber?: string;
+}
+
+export function templateButtons(components: TemplateComponent[]): TemplateButton[] {
+  const group = components.find((c) => c.type?.toUpperCase() === 'BUTTONS');
+
+  return (group?.buttons ?? []).map((button) => ({
+    type: String(button.type ?? '').toUpperCase(),
+    text: String(button.text ?? ''),
+    url: typeof button.url === 'string' ? button.url : undefined,
+    phoneNumber:
+      typeof button.phone_number === 'string' ? button.phone_number : undefined,
+  }));
+}
+
+/**
+ * Uma variável a preencher antes de enviar.
+ *
+ * A `key` é o contrato entre o formulário do modal e o backend: ele remonta os
+ * `components` da Meta a partir dela, sem depender da ordem em que o atendente
+ * preencheu os campos.
+ */
+export interface TemplateVariable {
+  /** `header.1`, `body.2`, `button.0.1`. */
+  key: string;
+  component: 'header' | 'body' | 'button';
+  /** O `n` de `{{n}}`. */
+  position: number;
+  /** Posição do botão na lista — só quando `component` é `button`. */
+  buttonIndex?: number;
+  label: string;
+}
+
+/**
+ * Lista as variáveis de um template, na ordem em que aparecem para quem lê a
+ * mensagem: cabeçalho, corpo e botões.
+ *
+ * Cobre header de texto, corpo e botões de URL — que é onde a Meta permite
+ * variável. Header de mídia exige upload de arquivo e fica fora por ora.
+ */
+export function templateVariables(
+  components: TemplateComponent[],
+): TemplateVariable[] {
+  const variables: TemplateVariable[] = [];
+
+  const header = templateHeaderText(components);
+  if (header) {
+    for (const position of extractVariables(header)) {
+      variables.push({
+        key: `header.${position}`,
+        component: 'header',
+        position,
+        label: `Cabeçalho · variável ${position}`,
+      });
+    }
+  }
+
+  for (const position of extractVariables(templateBodyText(components))) {
+    variables.push({
+      key: `body.${position}`,
+      component: 'body',
+      position,
+      label: `Corpo · variável ${position}`,
+    });
+  }
+
+  templateButtons(components).forEach((button, buttonIndex) => {
+    if (button.type !== 'URL' || !button.url) {
+      return;
+    }
+
+    for (const position of extractVariables(button.url)) {
+      variables.push({
+        key: `button.${buttonIndex}.${position}`,
+        component: 'button',
+        position,
+        buttonIndex,
+        label: `Botão "${button.text}" · variável ${position}`,
+      });
+    }
+  });
+
+  return variables;
+}
+
+/** Recorta os valores de um componente e reindexa por `{{n}}`. */
+function valuesFor(
+  variables: TemplateVariable[],
+  values: Record<string, string>,
+  predicate: (variable: TemplateVariable) => boolean,
+): Record<number, string> {
+  const result: Record<number, string> = {};
+
+  for (const variable of variables.filter(predicate)) {
+    const value = values[variable.key];
+    if (value !== undefined) {
+      result[variable.position] = value;
+    }
+  }
+
+  return result;
+}
+
+export interface TemplatePreview {
+  header: string | null;
+  body: string;
+  footer: string | null;
+  buttons: TemplateButton[];
+}
+
+/** Monta o template já com as variáveis substituídas, como o contato vai ver. */
+export function renderTemplatePreview(
+  components: TemplateComponent[],
+  values: Record<string, string>,
+): TemplatePreview {
+  const variables = templateVariables(components);
+  const header = templateHeaderText(components);
+
+  return {
+    header: header
+      ? renderTemplateText(
+          header,
+          valuesFor(variables, values, (v) => v.component === 'header'),
+        )
+      : null,
+    body: renderTemplateText(
+      templateBodyText(components),
+      valuesFor(variables, values, (v) => v.component === 'body'),
+    ),
+    footer: templateFooterText(components),
+    buttons: templateButtons(components),
+  };
+}
+
+/**
+ * O texto que vai para a bolha da conversa e para a prévia da lista.
+ *
+ * Guardamos o resultado renderizado, e não o nome do template: quem atende
+ * precisa ver o que o cliente recebeu, não `cobranca_v2`.
+ */
+export function renderTemplateMessage(
+  components: TemplateComponent[],
+  values: Record<string, string>,
+): string {
+  const preview = renderTemplatePreview(components, values);
+
+  return [preview.header, preview.body, preview.footer]
+    .filter((part): part is string => Boolean(part?.trim()))
+    .join('\n\n');
+}
+
+/** Nomes das variáveis que ficaram sem valor. Vazio significa pronto para enviar. */
+export function missingTemplateVariables(
+  components: TemplateComponent[],
+  values: Record<string, string>,
+): TemplateVariable[] {
+  return templateVariables(components).filter(
+    (variable) => !values[variable.key]?.trim(),
+  );
+}

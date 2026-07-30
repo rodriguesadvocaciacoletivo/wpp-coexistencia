@@ -7,6 +7,7 @@ import {
   Clock,
   Download,
   FileText,
+  LayoutTemplate,
   MapPin,
   Smartphone,
 } from 'lucide-react';
@@ -100,6 +101,7 @@ function MessageBubble({ message }: { message: MessageDto }) {
   const isInbound = message.direction === 'in';
   const isNote = message.type === 'private_note';
   const isEcho = message.origin === 'coexistence_echo';
+  const isTemplate = message.type === 'template';
 
   return (
     <div className={cn('flex', isInbound ? 'justify-start' : 'justify-end')}>
@@ -119,8 +121,16 @@ function MessageBubble({ message }: { message: MessageDto }) {
           </p>
         )}
 
-        {!isInbound && !isNote && message.author && (
-          <p className="mb-1 text-[11px] text-white/70">{message.author.name}</p>
+        {!isInbound && !isNote && (message.author || isTemplate) && (
+          <p className="mb-1 flex items-center gap-1.5 text-[11px] text-white/70">
+            {message.author?.name}
+            {isTemplate && (
+              <span className="flex items-center gap-1 rounded bg-white/15 px-1.5 py-0.5">
+                <LayoutTemplate className="size-2.5" aria-hidden />
+                Template
+              </span>
+            )}
+          </p>
         )}
 
         {message.attachments.map((attachment) => (

@@ -31,6 +31,7 @@ import {
   ListMessagesDto,
   RenameContactDto,
   SendMessageDto,
+  SendTemplateDto,
   UpdateConversationDto,
 } from './dto/conversations.dto';
 
@@ -98,6 +99,32 @@ export class ConversationsController {
             originalName: file.originalname,
           }
         : undefined,
+    });
+
+    const message = await this.prisma.message.findUniqueOrThrow({
+      where: { id: messageId },
+      include: { attachments: true, author: true },
+    });
+
+    return this.conversations.toMessageDto(message);
+  }
+
+  /**
+   * Envia um template aprovado. Rota separada do envio comum porque não tem
+   * arquivo e não depende da janela de 24h.
+   */
+  @Post(':id/messages/template')
+  @HttpCode(HttpStatus.CREATED)
+  async sendTemplate(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SendTemplateDto,
+    @CurrentUser('id') authorId: string,
+  ): Promise<MessageDto> {
+    const messageId = await this.sending.sendTemplate({
+      conversationId: id,
+      authorId,
+      templateId: dto.templateId,
+      variables: dto.variables ?? {},
     });
 
     const message = await this.prisma.message.findUniqueOrThrow({

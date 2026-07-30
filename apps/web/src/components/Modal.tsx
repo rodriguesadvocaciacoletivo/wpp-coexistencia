@@ -1,17 +1,27 @@
 import { useEffect, type ReactNode } from 'react';
 import { X } from 'lucide-react';
 
+const WIDTHS = {
+  md: 'max-w-md',
+  lg: 'max-w-3xl',
+} as const;
+
 export function Modal({
   open,
   title,
   description,
   onClose,
+  size = 'md',
+  bodyClassName,
   children,
 }: {
   open: boolean;
   title: string;
   description?: string;
   onClose: () => void;
+  /** `lg` para diálogos com duas colunas, como a escolha de template. */
+  size?: keyof typeof WIDTHS;
+  bodyClassName?: string;
   children: ReactNode;
 }) {
   // Fechar com Esc é esperado por qualquer usuário de teclado e evita que o
@@ -49,9 +59,9 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="w-full max-w-md rounded-xl border border-surface-700 bg-surface-900 shadow-2xl"
+        className={`flex max-h-[90vh] w-full flex-col rounded-xl border border-surface-700 bg-surface-900 shadow-2xl ${WIDTHS[size]}`}
       >
-        <header className="flex items-start justify-between gap-4 border-b border-surface-800 px-5 py-4">
+        <header className="flex shrink-0 items-start justify-between gap-4 border-b border-surface-800 px-5 py-4">
           <div>
             <h2 className="text-base font-semibold text-content-100">
               {title}
@@ -70,7 +80,9 @@ export function Modal({
           </button>
         </header>
 
-        <div className="p-5">{children}</div>
+        <div className={bodyClassName ?? 'min-h-0 flex-1 overflow-y-auto p-5'}>
+          {children}
+        </div>
       </div>
     </div>
   );

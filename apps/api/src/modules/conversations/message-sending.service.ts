@@ -6,7 +6,16 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma, type MessageType } from '@prisma/client';
-import { MEDIA_LIMITS, mediaKindOf } from '@coexistente/shared';
+import {
+  MEDIA_LIMITS,
+  isTemplateSendable,
+  mediaKindOf,
+  missingTemplateVariables,
+  renderTemplateMessage,
+  templateVariables,
+  type TemplateComponent,
+  type TemplateVariable,
+} from '@coexistente/shared';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { MetaGraphService } from '../meta/meta-graph.service';
@@ -26,6 +35,13 @@ export interface SendMessageOptions {
   content?: string;
   privateNote?: boolean;
   file?: OutgoingFile;
+}
+
+export interface SendTemplateOptions {
+  conversationId: string;
+  authorId: string;
+  templateId: string;
+  variables: Record<string, string>;
 }
 
 @Injectable()
@@ -204,6 +220,146 @@ export class MessageSendingService {
     return message.id;
   }
 
+  /**
+   * Envia um template aprovado.
+   *
+   * Caminho separado do envio comum por três motivos: não passa pela janela de
+   * 24h (é justamente o que a Meta aceita fora dela), o corpo é montado a
+   * partir dos componentes aprovados em vez de texto livre, e a falha aqui
+   * costuma ser de parâmetro, não de conteúdo.
+   */
+  async sendTemplate(options: SendTemplateOptions): Promise<string> {
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { id: options.conversationId },
+      include: { inbox: true, contact: true },
+    });
+
+    if (!conversation) {
+      throw new NotFoundException('Conversa não encontrada.');
+    }
+
+    if (conversation.inbox.deletedAt) {
+      throw new BadRequestException(
+        'Esta caixa de entrada foi removida e não envia mensagens.',
+      );
+    }
+
+    if (conversation.inbox.connectionStatus !== 'connected') {
+      throw new BadRequestException(
+        'A caixa de entrada está com problema de conexão. Revalide as credenciais antes de enviar.',
+      );
+    }
+
+    const template = await this.prisma.template.findUnique({
+      where: { id: options.templateId },
+    });
+
+    if (!template || template.inboxId !== conversation.inboxId) {
+      throw new NotFoundException(
+        'Template não encontrado nesta caixa de entrada.',
+      );
+    }
+
+    if (!isTemplateSendable(template.status)) {
+      throw new BadRequestException(
+        `O template "${template.name}" não está aprovado pela Meta e não pode ser enviado.`,
+      );
+    }
+
+    const components = template.components as unknown as TemplateComponent[];
+    const variables = templateVariables(components);
+    const values = sanitizeVariables(variables, options.variables);
+
+    const missing = missingTemplateVariables(components, values);
+    if (missing.length > 0) {
+      throw new BadRequestException(
+        `Preencha todas as variáveis: ${missing.map((v) => v.label).join(', ')}.`,
+      );
+    }
+
+    const token = this.crypto.decrypt(conversation.inbox.tokenEncrypted);
+    const rendered = renderTemplateMessage(components, values);
+
+    const message = await this.prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        direction: 'out',
+        type: 'template',
+        origin: 'platform',
+        status: 'pending',
+        // Guarda o texto renderizado: é o que o contato recebeu, e é o que a
+        // equipe precisa ler ao reabrir a conversa meses depois — mesmo que o
+        // template tenha sido editado ou removido na Meta desde então.
+        content: rendered,
+        payload: {
+          templateId: template.id,
+          templateName: template.name,
+          language: template.language,
+          variables: values,
+        } as Prisma.InputJsonValue,
+        authorId: options.authorId,
+      },
+    });
+
+    try {
+      const response = await this.meta.sendMessage(
+        conversation.inbox.phoneNumberId,
+        token,
+        {
+          to: conversation.contact.waId,
+          recipient_type: 'individual',
+          type: 'template',
+          template: {
+            name: template.name,
+            language: { code: template.language },
+            ...buildTemplateComponents(variables, values),
+          },
+        },
+      );
+
+      await this.prisma.message.update({
+        where: { id: message.id },
+        data: {
+          waMessageId: response.messages?.[0]?.id ?? null,
+          status: 'sent',
+          sentAt: new Date(),
+        },
+      });
+    } catch (error) {
+      const described =
+        error instanceof MetaApiError
+          ? describeMetaError(error)
+          : error instanceof Error
+            ? error.message
+            : String(error);
+
+      await this.prisma.message.update({
+        where: { id: message.id },
+        data: {
+          status: 'failed',
+          failedAt: new Date(),
+          errorPayload: { message: described } as Prisma.InputJsonValue,
+        },
+      });
+
+      this.logger.error(
+        `Falha ao enviar o template ${template.name} na conversa ${conversation.id}: ${described}`,
+      );
+
+      this.realtime.emitMessageCreated(conversation.id, message.id);
+      throw this.translate(error);
+    }
+
+    // Template não reabre a janela de 24h — só mensagem do contato faz isso.
+    // Por isso `windowExpiresAt` fica intocado aqui.
+    await this.touchConversation(conversation.id, rendered, 'template');
+
+    this.realtime.emitMessageCreated(conversation.id, message.id);
+    this.realtime.emitConversationUpdated(conversation.id);
+
+    return message.id;
+  }
+
   /** Nota interna: fica na timeline da equipe e nunca chega ao contato. */
   private async createPrivateNote(
     conversationId: string,
@@ -331,6 +487,86 @@ function buildPayload(
   }
 
   return { ...base, type, [type]: media };
+}
+
+/**
+ * Normaliza os valores das variáveis e descarta o que não pertence ao template.
+ *
+ * A Meta recusa parâmetro com quebra de linha, tabulação ou espaços seguidos
+ * (erro 132000). Um valor colado de planilha traz isso com frequência, e a
+ * mensagem de erro dela não ajuda ninguém — normalizar aqui é mais honesto que
+ * deixar o envio falhar por espaço em branco. Chaves fora da lista de variáveis
+ * são ignoradas: o payload da Meta só aceita o que o template aprovado declara.
+ */
+export function sanitizeVariables(
+  variables: TemplateVariable[],
+  values: Record<string, string> | undefined,
+): Record<string, string> {
+  const result: Record<string, string> = {};
+
+  for (const variable of variables) {
+    const raw = values?.[variable.key];
+
+    if (typeof raw !== 'string') {
+      continue;
+    }
+
+    const clean = raw
+      .replace(/[\r\n\t]+/g, ' ')
+      .replace(/ {2,}/g, ' ')
+      .trim();
+
+    if (clean) {
+      result[variable.key] = clean;
+    }
+  }
+
+  return result;
+}
+
+/** Monta o array `components` que a Meta espera no envio de template. */
+export function buildTemplateComponents(
+  variables: TemplateVariable[],
+  values: Record<string, string>,
+): { components?: Array<Record<string, unknown>> } {
+  const components: Array<Record<string, unknown>> = [];
+
+  const textParams = (
+    list: TemplateVariable[],
+  ): Array<Record<string, unknown>> =>
+    [...list]
+      .sort((a, b) => a.position - b.position)
+      .map((variable) => ({ type: 'text', text: values[variable.key] ?? '' }));
+
+  const header = variables.filter((v) => v.component === 'header');
+  if (header.length > 0) {
+    components.push({ type: 'header', parameters: textParams(header) });
+  }
+
+  const body = variables.filter((v) => v.component === 'body');
+  if (body.length > 0) {
+    components.push({ type: 'body', parameters: textParams(body) });
+  }
+
+  // Cada botão com variável vira um componente próprio. A Meta casa parâmetro
+  // com botão pela posição dele na lista aprovada, não pelo texto.
+  const buttons = variables.filter(
+    (v): v is TemplateVariable & { buttonIndex: number } =>
+      v.component === 'button' && typeof v.buttonIndex === 'number',
+  );
+
+  for (const index of [...new Set(buttons.map((v) => v.buttonIndex))].sort(
+    (a, b) => a - b,
+  )) {
+    components.push({
+      type: 'button',
+      sub_type: 'url',
+      index: String(index),
+      parameters: textParams(buttons.filter((v) => v.buttonIndex === index)),
+    });
+  }
+
+  return components.length > 0 ? { components } : {};
 }
 
 function previewForType(type: MessageType): string {
