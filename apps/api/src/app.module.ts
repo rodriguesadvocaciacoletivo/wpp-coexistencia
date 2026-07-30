@@ -33,7 +33,11 @@ import { HealthModule } from './modules/health/health.module';
     ThrottlerModule.forRoot([
       { name: 'default', ttl: 60_000, limit: 120 },
     ]),
-    ScheduleModule.forRoot(),
+    // Em serverless não há processo contínuo: os cron jobs seriam registrados
+    // e nunca disparariam. Mantê-los fora evita timers órfãos a cada
+    // invocação e deixa explícito que health check e re-sync de templates só
+    // funcionam onde a aplicação roda como processo.
+    ...(process.env.VERCEL ? [] : [ScheduleModule.forRoot()]),
     PrismaModule,
     CryptoModule,
     AuditModule,

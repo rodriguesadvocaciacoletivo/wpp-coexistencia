@@ -7,7 +7,11 @@ import { InboxesScheduler } from './inboxes.scheduler';
 @Module({
   imports: [TemplatesModule],
   controllers: [InboxesController],
-  providers: [InboxesService, InboxesScheduler],
+  // O scheduler depende do ScheduleModule, que só é registrado fora da Vercel.
+  providers: [
+    InboxesService,
+    ...(process.env.VERCEL ? [] : [InboxesScheduler]),
+  ],
   exports: [InboxesService],
 })
 export class InboxesModule {}
