@@ -1,9 +1,19 @@
 import type { AuthSessionDto } from '@coexistente/shared';
 
-const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(
-  /\/$/,
-  '',
-) ?? 'http://localhost:3333';
+/**
+ * Endereço da API.
+ *
+ * O padrão é `/api` — caminho relativo, mesma origem da interface. É assim que
+ * a aplicação roda hospedada: um único projeto serve a tela e a API, o que
+ * elimina CORS e, principalmente, evita que o cookie da sessão seja tratado
+ * como de terceiros pelo navegador (bloqueio que derrubaria a sessão em
+ * silêncio).
+ *
+ * Em desenvolvimento, VITE_API_URL aponta para a API rodando em outra porta.
+ */
+const API_URL =
+  (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ??
+  '/api';
 
 export class ApiError extends Error {
   constructor(
