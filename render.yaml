@@ -7,6 +7,9 @@
 # infraestrutura.
 #
 # A interface fica na Vercel; só a API e os serviços de dados vivem aqui.
+#
+# O nome do serviço define a URL (https://<name>.onrender.com) e precisa bater
+# com o VITE_API_URL configurado na Vercel.
 # =============================================================================
 
 # O Postgres é o do Supabase, não um banco gerenciado aqui — o Postgres gratuito
@@ -15,15 +18,17 @@
 
 services:
   - type: web
-    name: coexistente-api
+    name: wpp-coexistencia
     runtime: docker
     dockerfilePath: ./apps/api/Dockerfile
     dockerContext: .
     plan: free
+    region: oregon
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
+      # O Render injeta PORT e espera que o processo escute nela.
       - key: API_PORT
         value: 3333
 
@@ -37,26 +42,43 @@ services:
       - key: REDIS_URL
         fromService:
           type: redis
-          name: coexistente-redis
+          name: wpp-coexistencia-redis
           property: connectionString
 
-      # Gerados automaticamente na primeira criação e preservados depois.
-      # Trocar JWT_SECRET derruba todas as sessões.
-      # Trocar ENCRYPTION_KEY torna ilegíveis os segredos já salvos.
+      # Gerado automaticamente na criação e preservado depois.
+      # Trocar JWT_SECRET derruba todas as sessões ativas.
       - key: JWT_SECRET
         generateValue: true
+
+      # Precisa ser informada à mão e GUARDADA: perdê-la torna ilegíveis a
+      # senha do SMTP e os System User Tokens da Meta já salvos.
       - key: ENCRYPTION_KEY
         sync: false
 
-      # Preencher no painel com a URL da Vercel após o primeiro deploy.
+      # URL da interface na Vercel. Sem CORS_ORIGINS correto o navegador
+      # bloqueia as requisições mesmo com a API no ar.
       - key: APP_URL
         sync: false
       - key: CORS_ORIGINS
         sync: false
+      # URL desta própria API, usada nos links de mídia.
+      - key: PUBLIC_API_URL
+        sync: false
 
-      # Interface e API em domínios diferentes neste ambiente.
+      # Interface e API em domínios diferentes neste ambiente: o cookie do
+      # refresh token precisa de SameSite=None; Secure.
       - key: COOKIE_CROSS_SITE
         value: "true"
+
+      # Meta / WhatsApp Cloud API.
+      - key: META_GRAPH_VERSION
+        value: v25.0
+      # App Secret: valida a assinatura de todo webhook recebido.
+      - key: META_APP_SECRET
+        sync: false
+      # Token combinado com a Meta ao cadastrar a URL do webhook.
+      - key: META_WEBHOOK_VERIFY_TOKEN
+        sync: false
 
       # SMTP: configurável pela interface. Estes valores servem apenas para o
       # primeiro convite, antes de existir configuração salva no banco.
@@ -74,6 +96,7 @@ services:
         value: Atendimento
 
   - type: redis
-    name: coexistente-redis
+    name: wpp-coexistencia-redis
     plan: free
+    region: oregon
     ipAllowList: []

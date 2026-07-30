@@ -48,7 +48,12 @@ async function bootstrap(): Promise<void> {
 
   app.enableShutdownHooks();
 
-  const port = config.get<number>('API_PORT') ?? 3333;
+  // PORT vem da plataforma de hospedagem e tem precedência; API_PORT é o
+  // valor local. Escutar em 0.0.0.0 é obrigatório dentro de contêiner —
+  // em 127.0.0.1 o processo sobe mas fica inalcançável de fora.
+  const port =
+    config.get<number>('PORT') ?? config.get<number>('API_PORT') ?? 3333;
+
   await app.listen(port, '0.0.0.0');
 
   logger.log(`API disponível em http://localhost:${port}/api`);

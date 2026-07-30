@@ -13,6 +13,14 @@ const envSchema = z.object({
     .default('development'),
 
   API_PORT: z.coerce.number().int().positive().default(3333),
+
+  /**
+   * Porta injetada pela plataforma de hospedagem (Render, Railway, Heroku).
+   * Tem precedência sobre API_PORT: quem escolhe a porta nesses ambientes é o
+   * orquestrador, e ignorá-la faz o serviço subir num lugar onde ninguém o
+   * alcança — o health check falha e o deploy é dado como quebrado.
+   */
+  PORT: z.coerce.number().int().positive().optional(),
   CORS_ORIGINS: z.string().default('http://localhost:5173'),
   APP_URL: z.string().url().default('http://localhost:5173'),
 
