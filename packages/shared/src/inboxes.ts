@@ -33,6 +33,12 @@ export interface InboxDto {
   wabaReviewStatus: string | null;
 
   webhookSubscribedAt: string | null;
+  /**
+   * `true` quando esta API está registrada como destino dos webhooks da WABA
+   * (`override_callback_uri`). `false` significa que os eventos chegam pela URL
+   * configurada no painel do app no Meta Developers.
+   */
+  webhookOverride: boolean;
   templatesSyncedAt: string | null;
   templateCount: number;
   memberCount: number;
@@ -51,6 +57,12 @@ export interface CreateInboxInput {
   /** System User Token. Só trafega no sentido cliente → API. */
   token: string;
   memberIds?: string[];
+  /**
+   * Registra esta API como destino dos webhooks da WABA, sem passar pelo painel
+   * do Meta Developers. Substitui o destino atual — ligar tira o número de
+   * qualquer outro sistema que o receba hoje.
+   */
+  registerWebhook?: boolean;
 }
 
 export interface UpdateInboxInput {
@@ -58,6 +70,7 @@ export interface UpdateInboxInput {
   /** Omitir preserva o token salvo. Informar revalida a conexão. */
   token?: string;
   memberIds?: string[];
+  registerWebhook?: boolean;
 }
 
 /** Resultado da validação das credenciais, antes de salvar a caixa. */

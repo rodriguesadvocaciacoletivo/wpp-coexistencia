@@ -2,6 +2,7 @@ import { Transform } from 'class-transformer';
 import {
   ArrayUnique,
   IsArray,
+  IsBoolean,
   IsOptional,
   IsString,
   IsUUID,
@@ -57,6 +58,16 @@ export class CreateInboxDto extends ValidateInboxDto {
   @ArrayUnique()
   @IsUUID('4', { each: true, message: 'Identificador de agente inválido.' })
   memberIds?: string[];
+
+  /**
+   * Registra o endereço desta API como destino dos webhooks da WABA.
+   *
+   * Desligado por padrão de propósito: o override substitui o destino, então
+   * ligar tira o número de qualquer outro sistema que o receba hoje.
+   */
+  @IsOptional()
+  @IsBoolean()
+  registerWebhook?: boolean;
 }
 
 export class UpdateInboxDto {
@@ -79,6 +90,11 @@ export class UpdateInboxDto {
   @ArrayUnique()
   @IsUUID('4', { each: true, message: 'Identificador de agente inválido.' })
   memberIds?: string[];
+
+  /** Liga ou desliga o override do webhook. Reassina a WABA quando muda. */
+  @IsOptional()
+  @IsBoolean()
+  registerWebhook?: boolean;
 }
 
 export class SetInboxMembersDto {

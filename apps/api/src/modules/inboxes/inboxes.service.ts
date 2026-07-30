@@ -5,6 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Prisma, type Inbox } from '@prisma/client';
 import type {
   InboxDetailDto,
@@ -41,6 +42,7 @@ export class InboxesService {
     private readonly meta: MetaGraphService,
     private readonly templates: TemplatesService,
     private readonly audit: AuditService,
+    private readonly config: ConfigService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -195,7 +197,12 @@ export class InboxesService {
     // Assinatura de webhooks e sync de templates não abortam a criação: a caixa
     // conectada com sync pendente é um estado recuperável por um clique, e
     // desfazer tudo aqui obrigaria o administrador a repetir o wizard inteiro.
-    await this.subscribeWebhooks(inbox.id, input.wabaId, input.token);
+    await this.subscribeWebhooks(
+      inbox.id,
+      input.wabaId,
+      input.token,
+      input.registerWebhook ?? false,
+    );
     await this.syncTemplatesQuietly(inbox.id);
 
     await this.audit.record({
@@ -257,8 +264,21 @@ export class InboxesService {
       await this.replaceMembers(id, input.memberIds);
     }
 
+    // Reassina quando o token muda ou quando o administrador liga/desliga o
+    // registro automático. No segundo caso o token salvo serve: ele acabou de
+    // ser validado ou já estava em uso.
+    const overrideChanged =
+      input.registerWebhook !== undefined &&
+      input.registerWebhook !== inbox.webhookOverride;
+
+    if (input.token || overrideChanged) {
+      const token = input.token ?? this.crypto.decrypt(inbox.tokenEncrypted);
+      const useOverride = input.registerWebhook ?? inbox.webhookOverride;
+
+      await this.subscribeWebhooks(id, inbox.wabaId, token, useOverride);
+    }
+
     if (input.token) {
-      await this.subscribeWebhooks(id, inbox.wabaId, input.token);
       await this.syncTemplatesQuietly(id);
     }
 
@@ -267,7 +287,11 @@ export class InboxesService {
       action: 'inbox.updated',
       entity: 'inbox',
       entityId: id,
-      metadata: { nameChanged: Boolean(input.name), tokenRotated: Boolean(input.token) },
+      metadata: {
+        nameChanged: Boolean(input.name),
+        tokenRotated: Boolean(input.token),
+        ...(overrideChanged ? { webhookOverride: input.registerWebhook } : {}),
+      },
       ipAddress: actor.ipAddress,
     });
 
@@ -411,17 +435,68 @@ export class InboxesService {
     ]);
   }
 
+  /**
+   * Endereço público deste webhook, para o `override_callback_uri`.
+   *
+   * Devolve `null` quando não dá para usar: sem `PUBLIC_API_URL` ou apontando
+   * para localhost, a Meta não consegue fazer o GET de verificação e recusaria
+   * a assinatura inteira. Melhor não enviar o override do que quebrar a
+   * conexão da caixa por causa de um `.env` de desenvolvimento.
+   */
+  private webhookCallbackUrl(): string | null {
+    const base = this.config.get<string>('PUBLIC_API_URL')?.replace(/\/+$/, '');
+
+    if (!base) {
+      return null;
+    }
+
+    try {
+      const { hostname, protocol } = new URL(base);
+      const local =
+        hostname === 'localhost' ||
+        hostname === '127.0.0.1' ||
+        hostname.endsWith('.local');
+
+      if (local || protocol !== 'https:') {
+        return null;
+      }
+    } catch {
+      return null;
+    }
+
+    return `${base}/api/webhooks/meta`;
+  }
+
   private async subscribeWebhooks(
     inboxId: string,
     wabaId: string,
     token: string,
+    useOverride: boolean,
   ): Promise<void> {
+    const callbackUrl = useOverride ? this.webhookCallbackUrl() : null;
+    const verifyToken = this.config.get<string>('META_WEBHOOK_VERIFY_TOKEN');
+
+    if (useOverride && (!callbackUrl || !verifyToken)) {
+      this.logger.warn(
+        `Caixa ${inboxId}: registro automático do webhook pedido, mas PUBLIC_API_URL (https, público) e META_WEBHOOK_VERIFY_TOKEN não estão configurados. Assinando sem override.`,
+      );
+    }
+
     try {
-      await this.meta.subscribeApp(wabaId, token);
+      await this.meta.subscribeApp(
+        wabaId,
+        token,
+        callbackUrl && verifyToken
+          ? { callbackUrl, verifyToken }
+          : undefined,
+      );
 
       await this.prisma.inbox.update({
         where: { id: inboxId },
-        data: { webhookSubscribedAt: new Date() },
+        data: {
+          webhookSubscribedAt: new Date(),
+          webhookOverride: Boolean(callbackUrl && verifyToken),
+        },
       });
     } catch (error) {
       const reason =
@@ -468,6 +543,7 @@ export class InboxesService {
       wabaName: inbox.wabaName,
       wabaReviewStatus: inbox.wabaReviewStatus,
       webhookSubscribedAt: inbox.webhookSubscribedAt?.toISOString() ?? null,
+      webhookOverride: inbox.webhookOverride,
       templatesSyncedAt: inbox.templatesSyncedAt?.toISOString() ?? null,
       templateCount: inbox._count?.templates ?? 0,
       memberCount: inbox._count?.members ?? 0,

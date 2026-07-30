@@ -255,6 +255,14 @@ model Inbox {
   wabaReviewStatus    String?   @map("waba_review_status") @db.VarChar(48)
 
   webhookSubscribedAt DateTime? @map("webhook_subscribed_at")
+
+  /// Quando `true`, a assinatura envia `override_callback_uri` e a WABA passa
+  /// a entregar os webhooks direto nesta API, ignorando a URL configurada no
+  /// painel do app. Desligado por padrão porque o override *substitui* o
+  /// destino: ligar tira o número de qualquer outro sistema que o receba hoje.
+  /// Não cobre status de template — esse continua indo à URL padrão do app.
+  webhookOverride     Boolean   @default(false) @map("webhook_override")
+
   templatesSyncedAt   DateTime? @map("templates_synced_at")
 
   /// Soft delete: conversas e histórico são preservados para consulta.

@@ -137,6 +137,10 @@ O raciocínio completo e o passo a passo estão em [`docs/04-hospedagem.md`](doc
 - Erros da Meta traduzidos em mensagens acionáveis (token expirado, permissão faltando, ativo inexistente).
 - System User Token cifrado em AES-256-GCM, write-only: nunca retorna em nenhuma resposta.
 - Assinatura automática dos webhooks na WABA.
+- Registro automático do endereço do webhook, opcional por caixa: a plataforma informa a própria URL
+  à Meta (`override_callback_uri`) e dispensa preencher o painel do Meta Developers. Desligado por
+  padrão porque **substitui** o destino — ligar tira o número de qualquer outro sistema que o receba.
+  Não vale para status de template, que continua indo à URL do painel; o re-sync de 6h cobre isso.
 - Modo coexistência visível e bloqueado, com o motivo — depende da aprovação como Tech Provider.
 
 **Templates**

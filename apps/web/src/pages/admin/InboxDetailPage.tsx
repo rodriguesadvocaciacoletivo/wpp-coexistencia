@@ -9,6 +9,7 @@ import {
   RefreshCw,
   Trash2,
   TriangleAlert,
+  Webhook,
 } from 'lucide-react';
 import {
   CATEGORY_LABELS,
@@ -214,9 +215,14 @@ export function InboxDetailPage() {
                 <Row label="Webhooks">
                   {inbox.webhookSubscribedAt ? 'Assinados' : 'Não assinados'}
                 </Row>
+                <Row label="Destino dos webhooks">
+                  {inbox.webhookOverride ? 'Esta plataforma' : 'URL do app na Meta'}
+                </Row>
                 <Row label="Última validação">{formatDate(inbox.lastValidatedAt)}</Row>
                 <Row label="Último sync">{formatDate(inbox.templatesSyncedAt)}</Row>
               </dl>
+
+              <WebhookOverrideToggle inbox={inbox} />
             </Card>
 
             <Card title="Identificadores">
@@ -310,6 +316,100 @@ export function InboxDetailPage() {
           onSaved={invalidate}
         />
       )}
+    </>
+  );
+}
+
+/**
+ * Liga e desliga o registro automático do webhook.
+ *
+ * Sempre pede confirmação, nos dois sentidos: o override substitui o destino
+ * dos eventos daquela conta, então ligar corta quem recebe hoje e desligar
+ * devolve para a URL do painel — que pode não ser mais esta plataforma.
+ */
+function WebhookOverrideToggle({ inbox }: { inbox: InboxDetailDto }) {
+  const queryClient = useQueryClient();
+  const [confirming, setConfirming] = useState(false);
+  const enabling = !inbox.webhookOverride;
+
+  const save = useMutation({
+    mutationFn: () =>
+      apiRequest<InboxDetailDto>(`/inboxes/${inbox.id}`, {
+        method: 'PATCH',
+        body: { registerWebhook: enabling },
+      }),
+    onSuccess: () => {
+      toast.success(
+        enabling
+          ? 'Webhooks desta conta passam a chegar nesta plataforma.'
+          : 'Webhooks voltaram para a URL configurada no painel da Meta.',
+      );
+      void queryClient.invalidateQueries({ queryKey: ['inboxes'] });
+      setConfirming(false);
+    },
+    onError: (error: unknown) =>
+      toast.error(
+        error instanceof ApiError
+          ? error.message
+          : 'Não foi possível alterar o destino dos webhooks.',
+      ),
+  });
+
+  return (
+    <>
+      <Button
+        variant="secondary"
+        className="mt-4 w-full"
+        onClick={() => setConfirming(true)}
+      >
+        <Webhook className="size-4" aria-hidden />
+        {enabling ? 'Registrar webhook aqui' : 'Devolver ao painel da Meta'}
+      </Button>
+
+      <Modal
+        open={confirming}
+        onClose={() => setConfirming(false)}
+        title={
+          enabling
+            ? 'Registrar esta plataforma como destino?'
+            : 'Devolver os webhooks ao painel?'
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <p className="text-sm text-content-300">
+            {enabling ? (
+              <>
+                A Meta passará a entregar os eventos desta conta em{' '}
+                <code className="text-xs text-content-200">
+                  /api/webhooks/meta
+                </code>
+                . Isso <strong>substitui</strong> o destino atual: se outro
+                sistema recebe este número hoje, ele para de receber agora.
+              </>
+            ) : (
+              <>
+                Os eventos voltam para a URL configurada no painel do app no Meta
+                Developers. Se ela não apontar para esta plataforma, as mensagens
+                deixam de chegar aqui.
+              </>
+            )}
+          </p>
+
+          <p className="text-xs text-content-400">
+            Status de template não segue o override — continua indo para a URL do
+            painel nos dois casos. O re-sync de 6 horas cobre isso.
+          </p>
+
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setConfirming(false)}>
+              Cancelar
+            </Button>
+            <Button loading={save.isPending} onClick={() => save.mutate()}>
+              {enabling ? 'Registrar' : 'Devolver'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </>
   );
 }

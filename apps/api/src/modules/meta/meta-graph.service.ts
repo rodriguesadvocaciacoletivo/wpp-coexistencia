@@ -70,12 +70,31 @@ export class MetaGraphService {
     return response.data ?? [];
   }
 
-  /** Assina o app nos webhooks da WABA. Idempotente do lado da Meta. */
-  async subscribeApp(wabaId: string, token: string): Promise<boolean> {
+  /**
+   * Assina o app nos webhooks da WABA. Idempotente do lado da Meta.
+   *
+   * Com `override`, a WABA passa a entregar em `callbackUrl` em vez da URL
+   * configurada no painel do app — é o mecanismo que a Meta oferece para quem
+   * atende várias contas em endereços distintos. Antes de aceitar, ela faz um
+   * GET de verificação no endereço informado, com `hub.challenge`.
+   *
+   * Atenção: o override **substitui** o destino, não duplica. E não vale para
+   * todos os campos — status de template continua indo à URL padrão do app.
+   */
+  async subscribeApp(
+    wabaId: string,
+    token: string,
+    override?: { callbackUrl: string; verifyToken: string },
+  ): Promise<boolean> {
     const response = await this.request<{ success?: boolean }>(
       `/${wabaId}/subscribed_apps`,
       token,
-      undefined,
+      override
+        ? {
+            override_callback_uri: override.callbackUrl,
+            verify_token: override.verifyToken,
+          }
+        : undefined,
       { method: 'POST' },
     );
 

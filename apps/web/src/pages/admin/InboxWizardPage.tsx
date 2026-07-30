@@ -44,6 +44,9 @@ export function InboxWizardPage() {
   const [credentials, setCredentials] = useState<Credentials>(EMPTY);
   const [validation, setValidation] = useState<InboxValidationDto | null>(null);
   const [selectedAgents, setSelectedAgents] = useState<Set<string>>(new Set());
+  // Fora de `credentials` de propósito: marcar a caixa não invalida o teste de
+  // conexão, e obrigar a testar de novo por causa dela seria só atrito.
+  const [registerWebhook, setRegisterWebhook] = useState(false);
 
   const usersQuery = useQuery({
     queryKey: ['users'],
@@ -70,7 +73,11 @@ export function InboxWizardPage() {
     mutationFn: () =>
       apiRequest<InboxDetailDto>('/inboxes', {
         method: 'POST',
-        body: { ...credentials, memberIds: [...selectedAgents] },
+        body: {
+          ...credentials,
+          memberIds: [...selectedAgents],
+          registerWebhook,
+        },
       }),
     onSuccess: (inbox) => {
       toast.success(`Caixa "${inbox.name}" conectada.`);
@@ -140,6 +147,8 @@ export function InboxWizardPage() {
                 onBack={() => setStep('credentials')}
                 onFinish={() => create.mutate()}
                 saving={create.isPending}
+                registerWebhook={registerWebhook}
+                onToggleWebhook={setRegisterWebhook}
               />
             )}
           </div>
@@ -459,6 +468,8 @@ function AgentsStep({
   onBack,
   onFinish,
   saving,
+  registerWebhook,
+  onToggleWebhook,
 }: {
   users: UserDto[] | undefined;
   loading: boolean;
@@ -467,6 +478,8 @@ function AgentsStep({
   onBack: () => void;
   onFinish: () => void;
   saving: boolean;
+  registerWebhook: boolean;
+  onToggleWebhook: (value: boolean) => void;
 }): ReactNode {
   return (
     <Card
@@ -501,6 +514,33 @@ function AgentsStep({
                 </li>
               ))}
           </ul>
+
+          <label className="mt-4 flex cursor-pointer gap-3 rounded-xl border border-surface-800 bg-surface-850 p-4">
+            <input
+              type="checkbox"
+              className="mt-0.5 size-4 shrink-0 accent-brand-500"
+              checked={registerWebhook}
+              onChange={(event) => onToggleWebhook(event.target.checked)}
+            />
+            <span>
+              <span className="block text-sm font-medium text-content-100">
+                Registrar o webhook automaticamente
+              </span>
+              <span className="mt-1 block text-sm text-content-400">
+                A plataforma informa o próprio endereço à Meta ao assinar a WABA,
+                sem você precisar preencher a URL no painel do Meta Developers.
+              </span>
+              <span className="mt-2 flex gap-2 rounded-lg border border-warning-400/30 bg-warning-400/10 p-2.5 text-xs text-warning-400">
+                <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                <span>
+                  Isto <strong>substitui</strong> o destino atual dos webhooks
+                  desta conta. Se o número já é recebido por outro sistema, ele
+                  para de receber na hora. Status de template continua indo para
+                  a URL configurada no painel.
+                </span>
+              </span>
+            </span>
+          </label>
 
           <div className="mt-4 flex justify-between gap-2">
             <Button type="button" variant="ghost" onClick={onBack}>
