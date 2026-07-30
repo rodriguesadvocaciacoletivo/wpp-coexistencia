@@ -7,16 +7,20 @@ import {
   type ConversationDto,
   type ConversationFilter,
   type InboxDto,
+  type LabelDto,
   type Paginated,
 } from '@coexistente/shared';
 import { apiRequest } from '../../lib/api';
 import { Input, Select, Spinner, cn } from '../../components/ui';
+import { LabelChip } from '../../components/LabelChip';
 
 export function ConversationList({
   filter,
   onFilterChange,
   inboxId,
   onInboxChange,
+  labelId,
+  onLabelChange,
   search,
   onSearchChange,
   selectedId,
@@ -26,6 +30,8 @@ export function ConversationList({
   onFilterChange: (filter: ConversationFilter) => void;
   inboxId: string;
   onInboxChange: (inboxId: string) => void;
+  labelId: string;
+  onLabelChange: (labelId: string) => void;
   search: string;
   onSearchChange: (search: string) => void;
   selectedId: string | null;
@@ -42,13 +48,21 @@ export function ConversationList({
     queryFn: () => apiRequest<InboxDto[]>('/inboxes'),
   });
 
+  const labelsQuery = useQuery({
+    queryKey: ['labels'],
+    queryFn: () => apiRequest<LabelDto[]>('/labels'),
+  });
+
   const conversationsQuery = useQuery({
-    queryKey: ['conversations', filter, inboxId, search],
+    queryKey: ['conversations', filter, inboxId, labelId, search],
     queryFn: () => {
       const params = new URLSearchParams({ filter });
 
       if (inboxId) {
         params.set('inboxId', inboxId);
+      }
+      if (labelId) {
+        params.set('labelId', labelId);
       }
       if (search.trim()) {
         params.set('search', search.trim());
@@ -90,6 +104,22 @@ export function ConversationList({
             {inboxesQuery.data.map((inbox) => (
               <option key={inbox.id} value={inbox.id}>
                 {inbox.name}
+              </option>
+            ))}
+          </Select>
+        )}
+
+        {labelsQuery.data && labelsQuery.data.length > 0 && (
+          <Select
+            value={labelId}
+            onChange={(event) => onLabelChange(event.target.value)}
+            className="mt-2 py-2 text-sm"
+            aria-label="Filtrar por etiqueta"
+          >
+            <option value="">Todas as etiquetas</option>
+            {labelsQuery.data.map((label) => (
+              <option key={label.id} value={label.id}>
+                {label.name}
               </option>
             ))}
           </Select>
@@ -179,6 +209,9 @@ export function ConversationList({
                       {conversation.priority}
                     </span>
                   )}
+                  {conversation.labels.map((label) => (
+                    <LabelChip key={label.id} label={label} />
+                  ))}
                 </div>
               </button>
             </li>

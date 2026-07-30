@@ -3,7 +3,8 @@
 Plataforma de atendimento multiagente via **WhatsApp Cloud API oficial da Meta**, com suporte planejado a
 **coexistência** (mesmo número operando no app WhatsApp Business e na Cloud API).
 
-> **Fases entregues:** 1 (fundação), 2 (conexão Cloud API), 3 (conversas) e 4 (templates e janela de 24h).
+> **Fases entregues:** 1 (fundação), 2 (conexão Cloud API), 3 (conversas), 4 (templates e janela de 24h)
+> e 5 (etiquetas).
 > Contexto e escopo completos em [`docs/`](docs/).
 
 ---
@@ -196,6 +197,19 @@ O raciocínio completo e o passo a passo estão em [`docs/04-hospedagem.md`](doc
 - Template continua disponível **dentro** da janela: também serve para lembrete e confirmação.
 - Enviar template **não** reabre a janela. Só mensagem do contato faz isso, e é assim na Meta.
 
+## O que a Fase 5 entrega
+
+**Etiquetas**
+- CRUD em Configurações → Etiquetas, com paleta de cores e prévia de como a etiqueta vai aparecer.
+- Nome único sem diferenciar caixa nem acento: "Cobrança", "cobranca" e "COBRANÇA" são a mesma
+  etiqueta, e a segunda tentativa é recusada com o motivo.
+- Manutenção do catálogo é do administrador; **etiquetar é de qualquer agente**. Etiqueta criada no
+  calor do atendimento vira lista bagunçada em uma semana.
+- Aplicar e remover no painel da conversa, salvando a cada clique — sem botão de salvar para esquecer.
+- Etiquetas aparecem na lista de conversas, junto de responsável e prioridade.
+- Filtro por etiqueta na lista, combinável com aba, caixa e busca.
+- Excluir mostra em quantas conversas a etiqueta está antes de confirmar; as conversas permanecem.
+
 ---
 
 ## Comandos
@@ -223,7 +237,7 @@ apps/
       common/          crypto, prisma, guards, auditoria
       config/          validação de ambiente
       modules/         auth, users, teams, settings, mail, health,
-                       inboxes, meta, templates, conversations,
+                       inboxes, meta, templates, labels, conversations,
                        webhooks, realtime, storage
   web/                 React + Vite
     src/

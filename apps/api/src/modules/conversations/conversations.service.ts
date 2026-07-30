@@ -31,13 +31,25 @@ import type {
 const DEFAULT_PAGE_SIZE = 30;
 const MAX_PAGE_SIZE = 100;
 
+/**
+ * Tudo que `toDto` precisa. Fica em uma constante só porque as três consultas
+ * que devolvem conversa têm de carregar exatamente o mesmo conjunto — quando
+ * estavam escritas em triplicata, acrescentar uma relação significava lembrar
+ * de três lugares.
+ */
+const CONVERSATION_INCLUDE = {
+  contact: true,
+  inbox: { select: { id: true, name: true } },
+  assignee: true,
+  team: { select: { id: true, name: true } },
+  labels: {
+    include: { label: true },
+    orderBy: { label: { name: 'asc' } },
+  },
+} satisfies Prisma.ConversationInclude;
+
 type ConversationRecord = Prisma.ConversationGetPayload<{
-  include: {
-    contact: true;
-    inbox: { select: { id: true; name: true } };
-    assignee: true;
-    team: { select: { id: true; name: true } };
-  };
+  include: typeof CONVERSATION_INCLUDE;
 }>;
 
 @Injectable()
@@ -63,12 +75,7 @@ export class ConversationsService {
 
     const conversations = await this.prisma.conversation.findMany({
       where: this.buildWhere(query, viewerId),
-      include: {
-        contact: true,
-        inbox: { select: { id: true, name: true } },
-        assignee: true,
-        team: { select: { id: true, name: true } },
-      },
+      include: CONVERSATION_INCLUDE,
       // Ordena por atividade, com o id como desempate — sem ele, conversas com
       // o mesmo carimbo poderiam aparecer duas vezes ou sumir na paginação.
       orderBy: [{ lastMessageAt: 'desc' }, { id: 'desc' }],
@@ -103,12 +110,7 @@ export class ConversationsService {
   async findOne(id: string): Promise<ConversationDto> {
     const conversation = await this.prisma.conversation.findUnique({
       where: { id },
-      include: {
-        contact: true,
-        inbox: { select: { id: true, name: true } },
-        assignee: true,
-        team: { select: { id: true, name: true } },
-      },
+      include: CONVERSATION_INCLUDE,
     });
 
     if (!conversation) {
@@ -283,6 +285,63 @@ export class ConversationsService {
     return this.findOne(conversationId);
   }
 
+  /**
+   * Substitui as etiquetas da conversa pelo conjunto informado.
+   *
+   * Recebe o estado final em vez de adicionar e remover uma a uma: o modal
+   * marca e desmarca várias antes de salvar, e uma sequência de chamadas
+   * poderia parar no meio e deixar a conversa num estado que ninguém pediu.
+   */
+  async setLabels(
+    conversationId: string,
+    labelIds: string[],
+    actor: ActorContext,
+  ): Promise<ConversationDto> {
+    await this.requireConversation(conversationId);
+
+    const unique = [...new Set(labelIds)];
+
+    if (unique.length > 0) {
+      const found = await this.prisma.label.count({
+        where: { id: { in: unique } },
+      });
+
+      if (found !== unique.length) {
+        throw new BadRequestException(
+          'Uma das etiquetas informadas não existe mais. Recarregue a página.',
+        );
+      }
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.conversationLabel.deleteMany({
+        where: { conversationId, labelId: { notIn: unique } },
+      }),
+      this.prisma.conversationLabel.createMany({
+        data: unique.map((labelId) => ({
+          conversationId,
+          labelId,
+          addedById: actor.actorId,
+        })),
+        // As que já estavam continuam com o autor e a data originais.
+        skipDuplicates: true,
+      }),
+    ]);
+
+    await this.audit.record({
+      userId: actor.actorId,
+      action: 'conversation.labels_changed',
+      entity: 'conversation',
+      entityId: conversationId,
+      metadata: { labelIds: unique },
+      ipAddress: actor.ipAddress,
+    });
+
+    this.realtime.emitConversationUpdated(conversationId);
+
+    return this.findOne(conversationId);
+  }
+
   private async requireConversation(id: string) {
     const conversation = await this.prisma.conversation.findUnique({
       where: { id },
@@ -324,6 +383,10 @@ export class ConversationsService {
       where.priority = query.priority;
     }
 
+    if (query.labelId) {
+      where.labels = { some: { labelId: query.labelId } };
+    }
+
     if (query.search) {
       const term = query.search.trim();
       where.contact = {
@@ -349,6 +412,11 @@ export class ConversationsService {
       assignee: conversation.assignee ? toUserDto(conversation.assignee) : null,
       teamId: conversation.teamId,
       teamName: conversation.team?.name ?? null,
+      labels: conversation.labels.map(({ label }) => ({
+        id: label.id,
+        name: label.name,
+        color: label.color,
+      })),
       windowExpiresAt: conversation.windowExpiresAt?.toISOString() ?? null,
       lastMessageAt: conversation.lastMessageAt?.toISOString() ?? null,
       lastMessagePreview: conversation.lastMessagePreview,

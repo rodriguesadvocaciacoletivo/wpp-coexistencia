@@ -7,12 +7,14 @@ import {
   PRIORITY_LABELS,
   type ConversationDto,
   type ConversationPriority,
+  type LabelDto,
   type TeamDto,
   type UserDto,
 } from '@coexistente/shared';
 import { ApiError, apiRequest } from '../../lib/api';
 import { useCurrentUser } from '../../stores/auth.store';
 import { Button, Input, Select } from '../../components/ui';
+import { LabelChip } from '../../components/LabelChip';
 
 export function ContactPanel({ conversation }: { conversation: ConversationDto }) {
   const queryClient = useQueryClient();
@@ -200,6 +202,10 @@ export function ContactPanel({ conversation }: { conversation: ConversationDto }
           </Select>
         </Section>
 
+        <Section title="Etiquetas">
+          <LabelsSection conversation={conversation} onChanged={invalidate} />
+        </Section>
+
         <Section title="Caixa de entrada">
           <p className="text-sm text-content-200">{conversation.inboxName}</p>
         </Section>
@@ -211,6 +217,96 @@ export function ContactPanel({ conversation }: { conversation: ConversationDto }
         </Section>
       </div>
     </aside>
+  );
+}
+
+/**
+ * Etiquetas da conversa: as aplicadas viram fichas removíveis; um seletor
+ * acrescenta as que faltam.
+ *
+ * Cada clique salva na hora. O agente etiqueta no meio de uma conversa, e um
+ * botão "salvar" aqui viraria alteração perdida com frequência.
+ */
+function LabelsSection({
+  conversation,
+  onChanged,
+}: {
+  conversation: ConversationDto;
+  onChanged: () => void;
+}) {
+  const labelsQuery = useQuery({
+    queryKey: ['labels'],
+    queryFn: () => apiRequest<LabelDto[]>('/labels'),
+  });
+
+  const save = useMutation({
+    mutationFn: (labelIds: string[]) =>
+      apiRequest<ConversationDto>(`/conversations/${conversation.id}/labels`, {
+        method: 'PUT',
+        body: { labelIds },
+      }),
+    onSuccess: onChanged,
+    onError: (error: unknown) =>
+      toast.error(
+        error instanceof ApiError
+          ? error.message
+          : 'Não foi possível alterar as etiquetas.',
+      ),
+  });
+
+  const applied = conversation.labels;
+  const available = (labelsQuery.data ?? []).filter(
+    (label) => !applied.some((current) => current.id === label.id),
+  );
+
+  return (
+    <div className="flex flex-col gap-2">
+      {applied.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {applied.map((label) => (
+            <LabelChip
+              key={label.id}
+              label={label}
+              onRemove={() =>
+                save.mutate(
+                  applied
+                    .filter((current) => current.id !== label.id)
+                    .map((current) => current.id),
+                )
+              }
+            />
+          ))}
+        </div>
+      )}
+
+      {labelsQuery.data?.length === 0 ? (
+        <p className="text-xs text-content-400">
+          Nenhuma etiqueta cadastrada. Um administrador cria a lista em
+          Configurações → Etiquetas.
+        </p>
+      ) : (
+        available.length > 0 && (
+          <Select
+            value=""
+            disabled={save.isPending}
+            onChange={(event) => {
+              if (event.target.value) {
+                save.mutate([...applied.map((l) => l.id), event.target.value]);
+              }
+            }}
+            className="py-2 text-sm"
+            aria-label="Adicionar etiqueta"
+          >
+            <option value="">Adicionar etiqueta…</option>
+            {available.map((label) => (
+              <option key={label.id} value={label.id}>
+                {label.name}
+              </option>
+            ))}
+          </Select>
+        )
+      )}
+    </div>
   );
 }
 

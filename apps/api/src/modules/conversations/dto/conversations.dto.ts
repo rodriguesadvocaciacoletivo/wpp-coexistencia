@@ -40,6 +40,10 @@ export class ListConversationsDto {
   priority?: ConversationPriority;
 
   @IsOptional()
+  @IsUUID('4', { message: 'Etiqueta inválida.' })
+  labelId?: string;
+
+  @IsOptional()
   @Transform(trim)
   @IsString()
   @MaxLength(120)

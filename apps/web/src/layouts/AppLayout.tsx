@@ -4,6 +4,7 @@ import {
   LogOut,
   MessagesSquare,
   Smartphone,
+  Tags,
   Users,
   UsersRound,
   Mail,
@@ -63,6 +64,12 @@ export function AppLayout() {
                 icon={<UsersRound className="size-4" />}
               >
                 Times
+              </NavItem>
+              <NavItem
+                to="/configuracoes/etiquetas"
+                icon={<Tags className="size-4" />}
+              >
+                Etiquetas
               </NavItem>
               <NavItem
                 to="/configuracoes/smtp"

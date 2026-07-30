@@ -19,6 +19,7 @@ export function ConversationsPage() {
 
   const [filter, setFilter] = useState<ConversationFilter>('mine');
   const [inboxId, setInboxId] = useState('');
+  const [labelId, setLabelId] = useState('');
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -45,6 +46,8 @@ export function ConversationsPage() {
         onFilterChange={setFilter}
         inboxId={inboxId}
         onInboxChange={setInboxId}
+        labelId={labelId}
+        onLabelChange={setLabelId}
         search={search}
         onSearchChange={setSearch}
         selectedId={selectedId}

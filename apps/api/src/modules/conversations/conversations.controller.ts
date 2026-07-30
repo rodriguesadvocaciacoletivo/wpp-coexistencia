@@ -8,6 +8,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   UploadedFile,
@@ -24,6 +25,7 @@ import type {
 import { CurrentUser } from '../../common/auth/current-user';
 import { clientIp } from '../../common/http/client-ip';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { SetConversationLabelsDto } from '../labels/dto/labels.dto';
 import { ConversationsService } from './conversations.service';
 import { MessageSendingService } from './message-sending.service';
 import {
@@ -150,6 +152,20 @@ export class ConversationsController {
     @Req() request: Request,
   ): Promise<ConversationDto> {
     return this.conversations.update(id, dto, {
+      actorId,
+      ipAddress: clientIp(request),
+    });
+  }
+
+  /** Substitui as etiquetas da conversa. Qualquer agente pode etiquetar. */
+  @Put(':id/labels')
+  setLabels(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SetConversationLabelsDto,
+    @CurrentUser('id') actorId: string,
+    @Req() request: Request,
+  ): Promise<ConversationDto> {
+    return this.conversations.setLabels(id, dto.labelIds, {
       actorId,
       ipAddress: clientIp(request),
     });

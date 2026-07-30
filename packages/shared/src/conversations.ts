@@ -1,3 +1,4 @@
+import type { LabelRefDto } from './labels.js';
 import type { UserDto } from './users.js';
 
 export const CONVERSATION_STATUSES = ['open', 'resolved'] as const;
@@ -70,6 +71,7 @@ export interface ConversationDto {
   assignee: UserDto | null;
   teamId: string | null;
   teamName: string | null;
+  labels: LabelRefDto[];
   windowExpiresAt: string | null;
   lastMessageAt: string | null;
   lastMessagePreview: string | null;
@@ -108,9 +110,15 @@ export interface ConversationListQuery {
   inboxId?: string;
   status?: ConversationStatus;
   priority?: ConversationPriority;
+  /** Traz só as conversas associadas a esta etiqueta. */
+  labelId?: string;
   search?: string;
   cursor?: string;
   limit?: number;
+}
+
+export interface SetConversationLabelsInput {
+  labelIds: string[];
 }
 
 export interface Paginated<T> {

@@ -5,11 +5,11 @@
 // Fase 2: caixas de entrada (conexão com a Cloud API) e templates.
 // Fase 3: contatos, conversas, mensagens, anexos e eventos de webhook.
 //
-// Etiquetas entram na Fase 5.
+// Etiquetas: modelos Label e ConversationLabel, ao final deste arquivo.
 // =============================================================================
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
   // "native" cobre a máquina de desenvolvimento e a VPS.
   // "rhel-openssl-3.0.x" é o runtime das funções serverless da Vercel — sem
   // esse alvo, o build gera o client mas o engine não existe em produção.
@@ -17,7 +17,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider  = "postgresql"
   // Conexão usada em runtime. No Supabase pode ser a do pooler (porta 6543).
   url       = env("DATABASE_URL")
   // Conexão usada por `prisma migrate` e `prisma db push`.
@@ -52,14 +52,15 @@ model User {
   createdAt    DateTime   @default(now()) @map("created_at")
   updatedAt    DateTime   @updatedAt @map("updated_at")
 
-  refreshTokens  RefreshToken[]
-  passwordResets PasswordReset[]
-  teamMemberships TeamMember[]
-  invitationsSent Invitation[]   @relation("InvitationCreatedBy")
-  auditLogs      AuditLog[]
-  inboxMemberships InboxMember[]
-  assignedConversations Conversation[] @relation("ConversationAssignee")
-  authoredMessages      Message[]      @relation("MessageAuthor")
+  refreshTokens         RefreshToken[]
+  passwordResets        PasswordReset[]
+  teamMemberships       TeamMember[]
+  invitationsSent       Invitation[]        @relation("InvitationCreatedBy")
+  auditLogs             AuditLog[]
+  inboxMemberships      InboxMember[]
+  assignedConversations Conversation[]      @relation("ConversationAssignee")
+  authoredMessages      Message[]           @relation("MessageAuthor")
+  labelsApplied         ConversationLabel[]
 
   @@index([status])
   @@map("users")
@@ -68,17 +69,17 @@ model User {
 /// Sessão de refresh. Uma linha por sessão ativa; a rotação cria uma nova linha
 /// e marca a anterior como revogada, permitindo detectar reuso de token roubado.
 model RefreshToken {
-  id        String    @id @default(uuid()) @db.Uuid
-  userId    String    @map("user_id") @db.Uuid
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
   /// SHA-256 do token. O valor em claro só existe no cookie do cliente.
-  tokenHash String    @unique @map("token_hash")
-  expiresAt DateTime  @map("expires_at")
-  revokedAt DateTime? @map("revoked_at")
+  tokenHash    String    @unique @map("token_hash")
+  expiresAt    DateTime  @map("expires_at")
+  revokedAt    DateTime? @map("revoked_at")
   /// Aponta para o token que substituiu este na rotação.
-  replacedById String? @map("replaced_by_id") @db.Uuid
-  userAgent String?   @map("user_agent") @db.VarChar(255)
-  ipAddress String?   @map("ip_address") @db.VarChar(64)
-  createdAt DateTime  @default(now()) @map("created_at")
+  replacedById String?   @map("replaced_by_id") @db.Uuid
+  userAgent    String?   @map("user_agent") @db.VarChar(255)
+  ipAddress    String?   @map("ip_address") @db.VarChar(64)
+  createdAt    DateTime  @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -217,17 +218,17 @@ enum TemplateStatus {
 
 /// Uma caixa de entrada é um número de WhatsApp conectado à plataforma.
 model Inbox {
-  id             String              @id @default(uuid()) @db.Uuid
-  name           String              @db.VarChar(120)
+  id            String @id @default(uuid()) @db.Uuid
+  name          String @db.VarChar(120)
   /// Número em formato de exibição, como informado pelo administrador.
-  phoneNumber    String              @map("phone_number") @db.VarChar(32)
+  phoneNumber   String @map("phone_number") @db.VarChar(32)
   /// Identificador do número na Cloud API. Único: um número, uma caixa.
-  phoneNumberId  String              @unique @map("phone_number_id") @db.VarChar(64)
-  wabaId         String              @map("waba_id") @db.VarChar(64)
+  phoneNumberId String @unique @map("phone_number_id") @db.VarChar(64)
+  wabaId        String @map("waba_id") @db.VarChar(64)
 
   /// AES-256-GCM. Nunca sai da API em nenhuma resposta.
-  tokenEncrypted String              @map("token_encrypted")
-  tokenType      InboxTokenType      @default(system_user) @map("token_type")
+  tokenEncrypted String         @map("token_encrypted")
+  tokenType      InboxTokenType @default(system_user) @map("token_type")
 
   /// Imutável após a criação — converter um número entre os modos exigiria
   /// tirá-lo da WABA atual, e números em coexistência não migram entre WABAs.
@@ -241,18 +242,18 @@ model Inbox {
   /// Teto de envio por segundo. Coexistência é fixa em 20 mps; Cloud API pura
   /// escalona conforme o tier da Meta. Lido pela fila de envio na Fase 3 —
   /// nunca use constante no código.
-  throughputLimitMps Int      @default(80) @map("throughput_limit_mps")
+  throughputLimitMps Int @default(80) @map("throughput_limit_mps")
 
   /// Preenchido ao concluir a sincronização inicial de histórico e contatos,
   /// que a Meta limita a 24h após o onboarding de coexistência.
   coexistenceSyncedAt DateTime? @map("coexistence_synced_at")
 
   // Dados espelhados da Graph API, exibidos na tela da caixa.
-  verifiedName        String?   @map("verified_name") @db.VarChar(160)
-  qualityRating       String?   @map("quality_rating") @db.VarChar(24)
-  messagingTier       String?   @map("messaging_tier") @db.VarChar(48)
-  wabaName            String?   @map("waba_name") @db.VarChar(160)
-  wabaReviewStatus    String?   @map("waba_review_status") @db.VarChar(48)
+  verifiedName     String? @map("verified_name") @db.VarChar(160)
+  qualityRating    String? @map("quality_rating") @db.VarChar(24)
+  messagingTier    String? @map("messaging_tier") @db.VarChar(48)
+  wabaName         String? @map("waba_name") @db.VarChar(160)
+  wabaReviewStatus String? @map("waba_review_status") @db.VarChar(48)
 
   webhookSubscribedAt DateTime? @map("webhook_subscribed_at")
 
@@ -261,9 +262,9 @@ model Inbox {
   /// painel do app. Desligado por padrão porque o override *substitui* o
   /// destino: ligar tira o número de qualquer outro sistema que o receba hoje.
   /// Não cobre status de template — esse continua indo à URL padrão do app.
-  webhookOverride     Boolean   @default(false) @map("webhook_override")
+  webhookOverride Boolean @default(false) @map("webhook_override")
 
-  templatesSyncedAt   DateTime? @map("templates_synced_at")
+  templatesSyncedAt DateTime? @map("templates_synced_at")
 
   /// Soft delete: conversas e histórico são preservados para consulta.
   deletedAt DateTime? @map("deleted_at")
@@ -436,11 +437,12 @@ model Conversation {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  inbox    Inbox     @relation(fields: [inboxId], references: [id], onDelete: Cascade)
-  contact  Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  assignee User?     @relation("ConversationAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
-  team     Team?     @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  inbox    Inbox               @relation(fields: [inboxId], references: [id], onDelete: Cascade)
+  contact  Contact             @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  assignee User?               @relation("ConversationAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  team     Team?               @relation(fields: [teamId], references: [id], onDelete: SetNull)
   messages Message[]
+  labels   ConversationLabel[]
 
   @@unique([inboxId, contactId])
   @@index([status, lastMessageAt])
@@ -500,17 +502,17 @@ model Attachment {
   messageId String @map("message_id") @db.Uuid
 
   /// Identificador da mídia na Meta, quando houver.
-  metaMediaId  String? @map("meta_media_id") @db.VarChar(128)
+  metaMediaId     String?  @map("meta_media_id") @db.VarChar(128)
   /// Chave no storage próprio.
-  storageKey   String  @map("storage_key")
-  mimeType     String  @map("mime_type") @db.VarChar(120)
-  sizeBytes    Int     @map("size_bytes")
-  originalName String? @map("original_name") @db.VarChar(255)
+  storageKey      String   @map("storage_key")
+  mimeType        String   @map("mime_type") @db.VarChar(120)
+  sizeBytes       Int      @map("size_bytes")
+  originalName    String?  @map("original_name") @db.VarChar(255)
   /// Duração em segundos, para áudio e vídeo.
-  durationSeconds Int? @map("duration_seconds")
+  durationSeconds Int?     @map("duration_seconds")
   /// Legenda enviada junto do arquivo.
-  caption      String? @db.Text
-  createdAt    DateTime @default(now()) @map("created_at")
+  caption         String?  @db.Text
+  createdAt       DateTime @default(now()) @map("created_at")
 
   message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
@@ -535,17 +537,17 @@ model WebhookEvent {
   id String @id @default(uuid()) @db.Uuid
 
   /// Chave de deduplicação derivada do conteúdo do evento.
-  eventKey String @unique @map("event_key") @db.VarChar(200)
+  eventKey String  @unique @map("event_key") @db.VarChar(200)
   /// Campo do webhook: messages, statuses, message_template_status_update…
-  field    String @db.VarChar(80)
+  field    String  @db.VarChar(80)
   wabaId   String? @map("waba_id") @db.VarChar(64)
 
-  payload Json
-  status  WebhookEventStatus @default(queued)
-  attempts Int               @default(0)
-  lastError String?          @map("last_error") @db.Text
-  processedAt DateTime?      @map("processed_at")
-  createdAt   DateTime       @default(now()) @map("created_at")
+  payload     Json
+  status      WebhookEventStatus @default(queued)
+  attempts    Int                @default(0)
+  lastError   String?            @map("last_error") @db.Text
+  processedAt DateTime?          @map("processed_at")
+  createdAt   DateTime           @default(now()) @map("created_at")
 
   @@index([status, createdAt])
   @@map("webhook_events")
@@ -553,14 +555,14 @@ model WebhookEvent {
 
 /// Trilha de auditoria de ações administrativas.
 model AuditLog {
-  id         String   @id @default(uuid()) @db.Uuid
-  userId     String?  @map("user_id") @db.Uuid
-  action     String   @db.VarChar(80)
-  entity     String   @db.VarChar(60)
-  entityId   String?  @map("entity_id")
-  metadata   Json?
-  ipAddress  String?  @map("ip_address") @db.VarChar(64)
-  createdAt  DateTime @default(now()) @map("created_at")
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  action    String   @db.VarChar(80)
+  entity    String   @db.VarChar(60)
+  entityId  String?  @map("entity_id")
+  metadata  Json?
+  ipAddress String?  @map("ip_address") @db.VarChar(64)
+  createdAt DateTime @default(now()) @map("created_at")
 
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
@@ -568,4 +570,46 @@ model AuditLog {
   @@index([entity, entityId])
   @@index([createdAt])
   @@map("audit_logs")
+}
+
+// =============================================================================
+// Etiquetas
+// =============================================================================
+
+/// Etiqueta de conversa. Catálogo pequeno e global, mantido pelo administrador.
+model Label {
+  id    String @id @default(uuid()) @db.Uuid
+  /// Único. Guardado como o administrador digitou; a checagem de duplicidade
+  /// é feita sem diferenciar maiúsculas, para não existirem "Urgente" e
+  /// "urgente" lado a lado na mesma lista.
+  name  String @unique @db.VarChar(60)
+  /// Cor em hexadecimal (`#RRGGBB`), usada nas etiquetas da interface.
+  color String @db.VarChar(9)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  conversations ConversationLabel[]
+
+  @@map("labels")
+}
+
+/// Associação entre conversa e etiqueta.
+///
+/// `onDelete: Cascade` nos dois lados: excluir a etiqueta remove as associações
+/// — é o que a Fase 5 pede, com a confirmação acontecendo na interface.
+model ConversationLabel {
+  conversationId String   @map("conversation_id") @db.Uuid
+  labelId        String   @map("label_id") @db.Uuid
+  addedAt        DateTime @default(now()) @map("added_at")
+  /// Quem etiquetou. Nulo quando o usuário é removido da plataforma.
+  addedById      String?  @map("added_by_id") @db.Uuid
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  label        Label        @relation(fields: [labelId], references: [id], onDelete: Cascade)
+  addedBy      User?        @relation(fields: [addedById], references: [id], onDelete: SetNull)
+
+  @@id([conversationId, labelId])
+  @@index([labelId])
+  @@map("conversation_labels")
 }

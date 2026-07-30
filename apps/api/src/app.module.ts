@@ -17,6 +17,7 @@ import { TeamsModule } from './modules/teams/teams.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { TemplatesModule } from './modules/templates/templates.module';
 import { InboxesModule } from './modules/inboxes/inboxes.module';
+import { LabelsModule } from './modules/labels/labels.module';
 import { StorageModule } from './modules/storage/storage.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
 import { ConversationsModule } from './modules/conversations/conversations.module';
@@ -51,6 +52,7 @@ import { HealthModule } from './modules/health/health.module';
     SettingsModule,
     TemplatesModule,
     InboxesModule,
+    LabelsModule,
     ConversationsModule,
     WebhooksModule,
     HealthModule,
