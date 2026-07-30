@@ -13,8 +13,12 @@ coverage/
 apps/api/prisma/*.db
 apps/api/prisma/migrations/dev.db*
 
-# Storage local de mídia (Fase 3)
-storage/
+# Storage local de mídia (Fase 3).
+# A barra inicial ancora o padrão na raiz do repositório. Sem ela, "storage/"
+# casaria com qualquer diretório de mesmo nome em qualquer nível — foi assim
+# que o código-fonte de apps/api/src/modules/storage/ ficou fora do
+# versionamento, quebrando o build em clone limpo.
+/storage/
 
 # Logs
 *.log
