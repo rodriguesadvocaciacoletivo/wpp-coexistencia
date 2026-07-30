@@ -3,26 +3,38 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
- * Espelha a saída do build para `dist` na raiz do repositório.
+ * Publica a saída do build em todos os níveis onde a Vercel pode procurá-la.
  *
  * A Vercel resolve o `outputDirectory` a partir do Root Directory configurado
- * no painel, e daqui não há como saber qual foi escolhido — os logs de deploy
- * mostraram a saída sendo procurada ora na raiz, ora em apps/web. Publicar nos
- * dois caminhos elimina a adivinhação.
+ * no painel. Os logs de deploy descartaram, um a um, os palpites: com a saída
+ * só em apps/web/dist ela procurou na raiz; movida para a raiz, procurou em
+ * apps/web; presente nas duas, continuou não encontrando — o que só sobra se o
+ * Root Directory for um nível intermediário.
  *
- * Os caminhos são resolvidos a partir da localização deste arquivo, nunca do
- * cwd, justamente porque o cwd é a variável imprevisível aqui.
+ * Como não há como descobrir esse valor a partir do código, a saída é
+ * espelhada em cada nível do caminho. É redundante de propósito: o custo é
+ * alguns arquivos duplicados no contêiner de build, e o benefício é o deploy
+ * deixar de depender de um valor que não controlamos.
  *
- * A cópia é feita arquivo a arquivo em vez de `cpSync(..., {recursive:true})`:
- * a versão recursiva aborta o processo do Node (sem mensagem) em diretórios
- * sincronizados pelo OneDrive, que é o ambiente de desenvolvimento deste
- * projeto. `copyFileSync` não tem esse problema.
+ * Assim que o deploy estiver verde, dá para olhar o Root Directory real no
+ * painel e reduzir isto a um caminho só.
+ *
+ * Detalhe de implementação: a cópia é feita arquivo a arquivo em vez de
+ * `cpSync(..., { recursive: true })`. A versão recursiva aborta o processo do
+ * Node, sem mensagem nenhuma, em diretórios sincronizados pelo OneDrive — o
+ * ambiente de desenvolvimento deste projeto.
  */
 const here = dirname(fileURLToPath(import.meta.url));
-const source = resolve(here, '..', 'dist');
-const target = resolve(here, '..', '..', '..', 'dist');
+const webRoot = resolve(here, '..');
+const source = resolve(webRoot, 'dist');
 
-// Fora da Vercel, apps/web/dist é o único artefato — não suja a raiz.
+// apps/web/dist já é produzido pelo próprio Vite; aqui cobrimos os níveis acima.
+const targets = [
+  resolve(webRoot, '..', 'dist'), // <repo>/apps/dist
+  resolve(webRoot, '..', '..', 'dist'), // <repo>/dist
+];
+
+// Fora da Vercel, apps/web/dist é o único artefato — não suja o repositório.
 if (!process.env.VERCEL) {
   process.exit(0);
 }
@@ -47,7 +59,10 @@ function copyTree(from, to) {
   }
 }
 
-rmSync(target, { recursive: true, force: true });
-copyTree(source, target);
+console.log(`Saída do build: ${source}`);
 
-console.log(`Saída espelhada: ${source} -> ${target}`);
+for (const target of targets) {
+  rmSync(target, { recursive: true, force: true });
+  copyTree(source, target);
+  console.log(`  espelhada em ${target}`);
+}
